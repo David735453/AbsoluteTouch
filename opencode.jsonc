@@ -1,0 +1,32 @@
+{
+	"$schema": "https://opencode.ai/config.json",
+	/*"model": "opencode-go/deepseek-v4.1-flash",
+	"default_agent": "build",
+	"agents": {
+		"build": {
+			"mode": "primary",
+			"model": "opencode-go/deepseek-v4.1-flash",
+			"description": "Default primary agent for everyday development, refactoring, and orchestration."
+		},
+		"plan": {
+			"mode": "primary",
+			"model": "opencode-go/kimi-k2.7-code",
+			"description": "Planning agent for high-level architecture decisions and project roadmaps. (ok usage window)"
+		},
+		"explore": {
+			"mode": "subagent",
+			"model": "opencode-go/mimo-v2.6-flash",
+			"description": "Fast read-only subagent for searching files, gathering context, and codebase inspection."
+		},
+		"general": {
+			"mode": "subagent",
+			"model": "opencode-go/deepseek-v4.1-flash",
+			"description": "Parallel background worker subagent for batch editing, test generation, and linting."
+		},
+		"think": {
+			"mode": "subagent",
+			"model": "opencode-go/kimi-k3",
+			"description": "Deep reasoning subagent reserved strictly for complex debugging and algorithm design (pretty limited usage)."
+		}
+	},*/
+}
