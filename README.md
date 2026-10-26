@@ -4,22 +4,24 @@ AbsoluteTouch turns an iPad and Apple Pencil into an absolute graphics tablet fo
 a desktop computer. It streams Pencil position, contact, tilt, hover, and eraser
 state over Wi-Fi UDP or USB, then injects it as an absolute device.
 
-The project is in early development. **M0** contains the repository skeleton, the
-40-byte wire protocol, cross-language protocol tests, and manual CI workflows.
-Streaming and OS injection arrive in M1 and M2.
+The project is in early development. **M1** adds the desktop Wi-Fi session,
+configuration, coordinate mapping, trace recording/replay, and a mock injector.
+The iPad app that sends input arrives in M3, and OS injection starts with Linux
+`uinput` in M2.
 
 ## Status
 
-| Area                      | State                    |
-| ------------------------- | ------------------------ |
-| Protocol + golden vectors | Implemented and tested   |
-| Rust CLI skeleton         | Implemented              |
-| Swift core package        | Implemented and tested   |
-| iOS app                   | Placeholder shell        |
-| Wi-Fi / USB streaming     | Planned (M1/M4)          |
-| Linux `uinput` tablet     | Planned (M2)             |
-| Windows / macOS injection | Planned (M5/M6)          |
-| TestFlight / releases     | Workflows ready (manual) |
+| Area                      | State                          |
+| ------------------------- | ------------------------------ |
+| Protocol + golden vectors | Implemented and tested         |
+| Desktop Wi-Fi session     | Implemented and tested (M1)    |
+| Swift core package        | Implemented and tested         |
+| iOS app                   | Placeholder shell              |
+| Wi-Fi sender on the iPad  | Planned (M3)                   |
+| USB streaming             | Planned (M4)                   |
+| Linux `uinput` tablet     | Planned (M2)                   |
+| Windows / macOS injection | Planned (M5/M6)                |
+| TestFlight / releases     | Workflows ready (manual)       |
 
 ## Hardware note
 
@@ -46,6 +48,15 @@ make test          # Rust + Swift core tests
 make check         # formatting, lints, vectors, Ruby syntax
 make hooks         # enable the tracked pre-commit hook
 make doctor        # CLI environment report
+```
+
+Run a session without OS injection yet:
+
+```sh
+cd desktop
+cargo run -- token --reset                       # create a pairing token
+cargo run -- run --backend mock --record demo.atrace
+cargo run -- replay demo.atrace --dry-run
 ```
 
 Build and run the desktop CLI:
@@ -90,8 +101,8 @@ All workflows are manual and expose per-platform toggles:
 
 AbsoluteTouch injects input into your desktop, so it is designed to fail safe: a
 watchdog releases all buttons when packets stop, on disconnect, or on shutdown.
-Wi-Fi pairing will use a token plus a source-IP pin and is intended for trusted
-home networks. The token is not encryption.
+Wi-Fi pairing uses a token plus a source-IP pin and is intended for trusted home
+networks. The token is not encryption.
 
 ## License
 

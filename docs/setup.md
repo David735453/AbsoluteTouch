@@ -1,8 +1,9 @@
 # Setup
 
 This guide covers building the desktop CLI, building the iPad app, and
-preparing Linux for tablet injection. Some steps describe features that arrive
-in M1 through M4; they are marked as planned.
+preparing Linux for tablet injection. The desktop Wi-Fi session and trace replay
+exist today (M1); the iPad sender (M3), USB (M4), and OS backends (M2, M5, M6)
+are marked as planned.
 
 ## Requirements
 
@@ -45,6 +46,46 @@ make fmt-check  # formatting check only
 make hooks      # enable the tracked pre-commit hook
 make doctor     # CLI environment report
 ```
+
+### Configuration and environment
+
+`absolutetouch run` reads `~/.config/absolutetouch/config.toml` if it exists;
+`--config PATH` selects another file. The format is described under
+[Configuration file](#configuration-file). Environment variables override the
+file:
+
+| Variable | Meaning |
+| --- | --- |
+| `ABSOLUTETOUCH_BIND` | Listener address |
+| `ABSOLUTETOUCH_UDP_PORT` | Wi-Fi UDP port (default 37689) |
+| `ABSOLUTETOUCH_TCP_PORT` | USB TCP port (default 37690) |
+| `ABSOLUTETOUCH_TRANSPORT` | `wifi` or `usb` |
+| `ABSOLUTETOUCH_TOKEN` | 32 hex characters |
+| `ABSOLUTETOUCH_BACKEND` | `auto`, `mock`, `uinput`, `windows`, `macos` |
+| `ABSOLUTETOUCH_DRY_RUN` | `true` or `false` |
+| `ABSOLUTETOUCH_WATCHDOG_MS` | Release timeout in milliseconds |
+| `ABSOLUTETOUCH_SESSION_TIMEOUT_MS` | Session timeout in milliseconds |
+| `ABSOLUTETOUCH_PRESSURE_DEFAULT` | Fallback pressure level |
+
+### Run and replay
+
+```sh
+# Create a pairing token and write it to the config file
+absolutetouch token --reset
+
+# Wi-Fi session without OS injection
+absolutetouch run --dry-run --record session.atrace
+
+# Mock backend: records injector decisions without touching the OS
+absolutetouch run --backend mock --record session.atrace
+
+# Replay through the same session and mapping code, no socket
+absolutetouch replay session.atrace --dry-run
+absolutetouch replay session.atrace --speed 2
+```
+
+M1 has no OS backend yet, so `--backend mock` and `--dry-run` are the supported
+session modes. Linux `uinput` arrives in M2.
 
 ### Linux: `/dev/uinput`
 
@@ -114,24 +155,22 @@ Wi-Fi streaming triggers the local network prompt. The usage description is in
 USB streaming does not use the local network. It still requires the iPad to be
 trusted by the desktop and `usbmuxd` to see the device.
 
-## Streaming (planned)
+## Streaming
 
-Streaming is implemented in M1 (desktop UDP), M3 (iPad app), and M4 (USB). The
-intended commands are:
+The desktop Wi-Fi receiver is implemented (M1). The iPad sender arrives in M3
+and USB in M4, so `--transport usb` and `devices` still report "not
+implemented".
 
 ```sh
-# Wi-Fi
-absolutetouch run --transport wifi
-
-# USB
-absolutetouch run --transport usb
+# Wi-Fi, recording injector decisions without touching the OS (M1)
+absolutetouch run --backend mock --record session.atrace
 
 # Decode and print without injecting
-absolutetouch run --transport wifi --dry-run
+absolutetouch run --dry-run
 
-# Record and replay
-absolutetouch run --transport wifi --record session.atrace
-absolutetouch replay session.atrace
+# Replay a trace through the same session and mapping code
+absolutetouch replay session.atrace --dry-run
+absolutetouch replay session.atrace --speed 2
 
 # Inspect the environment
 absolutetouch doctor
@@ -140,6 +179,9 @@ absolutetouch doctor
 absolutetouch token
 absolutetouch token --reset
 ```
+
+Once the Linux `uinput` backend lands in M2, `absolutetouch run` without
+`--backend mock` or `--dry-run` becomes the normal path.
 
 ### Ports
 
@@ -164,7 +206,7 @@ sudo firewall-cmd --add-port=37689/udp --permanent
 sudo firewall-cmd --reload
 ```
 
-### Configuration (planned M1)
+### Configuration file
 
 The desktop reads a TOML file and applies CLI overrides last:
 
@@ -175,42 +217,56 @@ The desktop reads a TOML file and applies CLI overrides last:
 
 Default paths:
 
-| OS | Path |
+| Condition | Path |
 | --- | --- |
-| Linux | `$XDG_CONFIG_HOME/absolutetouch/config.toml` or `~/.config/absolutetouch/config.toml` |
-| macOS | `~/Library/Application Support/absolutetouch/config.toml` |
-| Windows | `%APPDATA%\absolutetouch\config.toml` |
+| `XDG_CONFIG_HOME` is set | `$XDG_CONFIG_HOME/absolutetouch/config.toml` |
+| Otherwise, `HOME` is set | `$HOME/.config/absolutetouch/config.toml` |
+
+`--config PATH` overrides the default. Platform-native locations (macOS
+Application Support, Windows `%APPDATA%`) arrive with those backends; until
+then use `--config` there.
 
 Example shape:
 
 ```toml
-[transport]
-mode = "wifi"
+transport = "wifi"
+bind = "0.0.0.0"
 udp_port = 37689
 tcp_port = 37690
-
-[inject]
+token = "000102030405060708090a0b0c0d0e0f"
+watchdog_ms = 750
+session_timeout_ms = 5000
+pressure_default = 32768
+dry_run = false
 backend = "auto"
-default_pressure = 32768
 
 [mapping]
-target = "primary"
-preserve_aspect = true
+aspect = "preserve"
+source_aspect = 1.3333333333333333
+# Filled from the display in M2; without it the mapping stretches.
+# target_aspect = 1.7777777777777777
 
-[pairing]
-token = "replace-with-a-generated-token"
+[mapping.target]
+x = 0
+y = 0
+width = 65535
+height = 65535
 ```
 
-Exact keys may change before M1 ships; the CLI is the source of truth.
+[`desktop/absolutetouch.example.toml`](../desktop/absolutetouch.example.toml)
+documents every key, and a test keeps it parsing and validating. Unknown keys
+are rejected rather than silently ignored.
 
-### Pairing (planned M3)
+### Pairing
 
-The desktop generates a 16-byte token. The iPad must present the same token in
-`HELLO`, and the desktop may additionally pin the iPad's source IP. A mismatch
-is rejected and logged. Regenerating the token invalidates the old pairing.
+The desktop generates a 16-byte token with `absolutetouch token --reset`. The
+iPad must present the same token in `HELLO`; a mismatch is rejected and logged,
+without a reply. While a session is active the desktop pins it to the source
+address that completed the handshake, so another peer cannot take over.
+Regenerating the token invalidates the old pairing.
 
 The token is sent in clear text and is not encryption. Use it on a trusted
-network, or use USB.
+network, or use USB. The iPad-side token entry arrives with the app in M3.
 
 ## osu!
 

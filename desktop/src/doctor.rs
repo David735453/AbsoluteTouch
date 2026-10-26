@@ -11,7 +11,7 @@ pub fn report() {
     report_linux();
 
     #[cfg(not(target_os = "linux"))]
-    println!("backend: not implemented on this platform in M0");
+    println!("backend: not implemented for this platform in this build");
 }
 
 #[cfg(target_os = "linux")]

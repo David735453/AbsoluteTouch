@@ -2,6 +2,9 @@
 /desktop/target/
 **/*.rs.bk
 
+# Recorded sessions and traces
+*.atrace
+
 # Swift / Xcode
 /ios/.build/
 /ios/DerivedData/

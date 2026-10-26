@@ -1,0 +1,46 @@
+# AbsoluteTouch desktop configuration.
+#
+# Copy to ~/.config/absolutetouch/config.toml (or pass --config PATH).
+# Precedence: command line, then ABSOLUTETOUCH_* environment variables, then
+# this file, then built-in defaults.
+
+# "wifi" (UDP) or "usb" (M4).
+transport = "wifi"
+bind = "0.0.0.0"
+udp_port = 37689
+tcp_port = 37690
+
+# 32 hexadecimal characters. Generate one with:
+#   absolutetouch token --reset
+# When unset, any token is accepted; the token is still echoed in HELLO_ACK.
+# token = "000102030405060708090a0b0c0d0e0f"
+
+# Milliseconds without a valid packet before input is released.
+watchdog_ms = 750
+# Milliseconds without a valid packet before the session ends and a new HELLO
+# is required.
+session_timeout_ms = 5000
+# Pressure used when the iPad reports no CAP_PRESSURE.
+pressure_default = 32768
+
+# Decode and log without injecting. Implies the mock backend with `auto`.
+dry_run = false
+# "auto", "mock", "uinput", "windows", or "macos". Only "mock" is available
+# in M1; Linux uinput arrives in M2.
+backend = "auto"
+
+[mapping]
+# "preserve" letterboxes the iPad aspect ratio inside the target rectangle;
+# "stretch" fills it. Preserving needs both aspect ratios.
+aspect = "preserve"
+source_aspect = 1.3333333333333333
+# The desktop aspect ratio; M2 fills it from the display. Without it the
+# mapping stretches.
+# target_aspect = 1.7777777777777777
+
+[mapping.target]
+# Normalized desktop rectangle, 0..=65535. The full desktop is the default.
+x = 0
+y = 0
+width = 65535
+height = 65535

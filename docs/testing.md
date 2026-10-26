@@ -11,11 +11,13 @@ compile.
 | Protocol unit tests | Length, magic, version, type, token, round-trip | `desktop/src/protocol/` |
 | Golden vectors | Cross-language byte agreement | `protocol/vectors.json` |
 | CLI tests | Argument parsing and defaults | `desktop/src/cli.rs` |
-| Config tests | Defaults and future precedence | `desktop/src/config.rs` |
-| Mapping tests | Normalized → target rectangle (M1) | `desktop/src/mapping.rs` |
-| Session tests | Handshake, sequence window, watchdog (M1) | `desktop/src/session.rs` |
-| Injector tests | Exact event sequences through `MockInjector` (M1) | `desktop/src/inject/mock.rs` |
-| Trace replay | Recorded sessions reproduce injection decisions (M1) | `desktop/src/transport/trace.rs` |
+| Config tests | Defaults, precedence, validation, example file | `desktop/src/config.rs` |
+| Mapping tests | Stretch, offset, letterbox, flag passthrough | `desktop/src/mapping.rs` |
+| Session tests | Handshake, token, peer pin, sequence window, heartbeat, watchdog | `desktop/src/session.rs` |
+| Injector tests | Exact event sequences through `MockInjector` | `desktop/src/inject/mock.rs` |
+| Trace tests | Round-trip, offsets, truncation, corrupt packets | `desktop/src/transport/trace.rs` |
+| UDP tests | Local socket receive, decode errors, replies, shutdown | `desktop/src/transport/udp.rs` |
+| End-to-end | HELLO/SAMPLE/BYE over loopback, record then replay | `desktop/src/run.rs` |
 | Swift core tests | Same protocol and vectors as Rust | `ios/AbsoluteTouchCore/Tests/` |
 | Manual hardware tests | Real Pencil, real backend, real OS | Checklist below |
 
@@ -38,7 +40,7 @@ swift test --package-path ios/AbsoluteTouchCore
 swift format lint --strict --recursive ios/AbsoluteTouchCore ios/App
 
 # Optional SwiftLint (repository config in .swiftlint.yml)
-swiftlint lint
+swiftlint lint --quiet --strict
 
 # Ruby files used by the iOS release lane
 ruby -c ios/Gemfile
@@ -70,6 +72,8 @@ locally cannot slip through.
 
 ## Formatting rules
 
+- Indentation: Swift uses tabs displayed two columns wide; Rust uses rustfmt's
+  four spaces. `.editorconfig` and `.swift-format` agree with this.
 - Rust: `rustfmt.toml`, enforced by `cargo fmt --check`.
 - Swift: `.swift-format`, enforced by `swift format lint --strict` (bundled
   with the Swift toolchain). Without `--strict`, swift-format reports findings
@@ -133,20 +137,22 @@ requires `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8_BASE64`, and
 `APPLE_TEAM_ID`. Upload is off by default; set the `upload` input to build
 first and upload only when intended. The workflow never runs for pull requests.
 
-## Recording and replay (planned M1)
+## Recording and replay
 
 Manual repetition is unreliable for latency and injection regressions. The
-desktop CLI will record received packets and replay them through the same
-session and mapping code:
+desktop CLI records received packets and replays them through the same session
+and mapping code:
 
 ```sh
-absolutetouch run --record session.atrace
-absolutetouch replay session.atrace
+absolutetouch run --backend mock --record session.atrace
 absolutetouch replay session.atrace --dry-run
+absolutetouch replay session.atrace --speed 2
 ```
 
 Replay tests use `MockInjector` and assert the exact injected sequence. The
-trace format is internal and versioned; it is not the wire protocol.
+trace format is internal and versioned (`ATTR`, version 1, 8-byte header,
+48-byte records); it is not the wire protocol. `--record` keeps rejected
+packets too, so a trace can reproduce misbehaving clients.
 
 ## Manual hardware checklist
 

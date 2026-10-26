@@ -166,8 +166,10 @@ is a session policy, not part of the wire format.
 
 ### `BYE`
 
-Ends the session cleanly. It carries no payload. Either side may send it. The
-desktop releases every pressed button before closing the session.
+Ends the session cleanly. It carries no payload. The iPad sends it when the app
+stops streaming; the desktop releases every pressed button and closes the
+session. In M1 the desktop does not send `BYE` when it shuts down, but it runs
+the same release path.
 
 ## Session policy
 
@@ -176,15 +178,21 @@ These rules are implemented by the session layer, not the packet codec.
 1. The iPad binds a local port and sends `HELLO` to the configured desktop
    address on UDP port **37689**, repeating about twice per second until it
    receives `HELLO_ACK`.
-2. The desktop validates the token and, if configured, the pinned source IP.
-   It then assigns a non-zero `session_id` and sends `HELLO_ACK`.
+2. The desktop validates the token when one is configured, accepts the session
+   from that source address, and assigns a non-zero `session_id`. It then sends
+   `HELLO_ACK`.
 3. Samples start after `HELLO_ACK`. `seq` increases once per data packet and
    wraps at 65,535. It is not an absolute ordering key.
-4. Either side sends `BYE` on a clean shutdown. A watchdog releases all input
-   if no valid packet arrives for 750 ms (configurable). The same watchdog runs
-   on disconnect, process shutdown, and panic.
-5. A session that times out requires a new `HELLO`; `session_id` values are not
-   reused across sessions.
+4. The iPad sends `BYE` on a clean shutdown. A watchdog releases all input if
+   no valid packet arrives for 750 ms (configurable). The session itself ends
+   after 5000 ms of silence, so idle heartbeats can keep a session alive
+   without holding a contact. Both timeouts are configurable.
+5. A session that exceeds the session timeout requires a new `HELLO`;
+   `session_id` values are not reused across sessions.
+6. When a pairing token is configured, `HELLO` must carry it or the desktop
+   drops the packet without replying. The desktop pins the session to the
+   source address of the accepted `HELLO`; another peer cannot take over while
+   the session is active.
 
 USB uses the same handshake and packet stream. The iPad listens on TCP port
 **37690**; the desktop connects through the local `usbmuxd` service. The iPad is

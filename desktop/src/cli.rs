@@ -1,9 +1,15 @@
 //! Command-line interface.
 
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use clap::{Args, Parser, Subcommand};
 
-use crate::config::TransportMode;
+use crate::config::{Config, Overrides, TransportMode, default_path, encode_hex16, generate_token};
 use crate::error::Error;
+use crate::inject::backend;
+use crate::run;
 
 /// Command-line options for AbsoluteTouch.
 #[derive(Debug, Parser)]
@@ -15,7 +21,7 @@ use crate::error::Error;
 pub struct Cli {
     /// Configuration file path.
     #[arg(long, global = true, value_name = "PATH")]
-    pub config: Option<std::path::PathBuf>,
+    pub config: Option<PathBuf>,
     /// Subcommand to run. Defaults to `doctor`.
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -50,7 +56,7 @@ pub struct RunArgs {
     pub dry_run: bool,
     /// Record packets to a trace file.
     #[arg(long, value_name = "FILE")]
-    pub record: Option<std::path::PathBuf>,
+    pub record: Option<PathBuf>,
 }
 
 /// Options for `replay`.
@@ -58,7 +64,7 @@ pub struct RunArgs {
 pub struct ReplayArgs {
     /// Trace file to replay.
     #[arg(value_name = "FILE")]
-    pub file: std::path::PathBuf,
+    pub file: PathBuf,
     /// Print events without injecting them.
     #[arg(long)]
     pub dry_run: bool,
@@ -97,38 +103,122 @@ impl From<TransportArg> for TransportMode {
 ///
 /// # Errors
 ///
-/// Returns [`Error`] when the selected command fails or is not implemented in
-/// the current milestone.
+/// Returns [`Error`] when the selected command fails.
 pub fn run() -> Result<(), Error> {
-    let cli = Cli::parse();
-    let command = cli.command.unwrap_or(Command::Doctor);
+    dispatch(Cli::parse())
+}
 
-    if matches!(&command, Command::Doctor) {
-        crate::doctor::report();
+fn dispatch(cli: Cli) -> Result<(), Error> {
+    let config_path = cli.config.clone();
+    match cli.command.unwrap_or(Command::Doctor) {
+        Command::Doctor => {
+            crate::doctor::report();
+            Ok(())
+        }
+        Command::Token(args) => token(&args, config_path.as_deref()),
+        Command::Devices => Err(Error::NotImplemented { feature: "devices" }),
+        Command::Run(args) => run_session(args, config_path.as_deref()),
+        Command::Replay(args) => replay_trace(&args, config_path.as_deref()),
+    }
+}
+
+fn run_session(args: RunArgs, config_path: Option<&Path>) -> Result<(), Error> {
+    let overrides = Overrides {
+        transport: args.transport.map(Into::into),
+        backend: args.backend,
+        dry_run: args.dry_run.then_some(true),
+    };
+    let config = Config::load(config_path)?
+        .apply_overrides(&overrides)
+        .validate()?;
+
+    if config.transport == TransportMode::Usb {
+        return Err(Error::NotImplemented {
+            feature: "usb transport",
+        });
+    }
+
+    let mut injector = backend(&config.backend, config.dry_run)?;
+    let stop = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&stop);
+    ctrlc::set_handler(move || flag.store(true, Ordering::SeqCst))
+        .map_err(|error| Error::Signal(error.to_string()))?;
+
+    let report = run::wifi(&config, injector.as_mut(), args.record.as_deref(), &stop)?;
+
+    println!(
+        "injected {} samples, recorded {} packets",
+        report.injected, report.recorded
+    );
+    eprintln!("{}", report.stats);
+    Ok(())
+}
+
+fn replay_trace(args: &ReplayArgs, config_path: Option<&Path>) -> Result<(), Error> {
+    let overrides = Overrides {
+        dry_run: Some(args.dry_run),
+        ..Overrides::default()
+    };
+    let config = Config::load(config_path)?
+        .apply_overrides(&overrides)
+        .validate()?;
+    let mut injector = backend(&config.backend, true)?;
+
+    let report = run::replay(
+        &args.file,
+        args.speed,
+        args.dry_run,
+        &config,
+        injector.as_mut(),
+    )?;
+
+    println!(
+        "replayed {} records, {} samples",
+        report.records, report.stats.samples
+    );
+    eprintln!("{}", report.stats);
+    Ok(())
+}
+
+fn token(args: &TokenArgs, config_path: Option<&Path>) -> Result<(), Error> {
+    let path = config_path.map(PathBuf::from).or_else(default_path);
+
+    let mut config = match &path {
+        Some(path) if path.exists() => Config::from_file(path)?,
+        _ => Config::default(),
+    };
+
+    if args.reset {
+        let new_token = encode_hex16(&generate_token());
+        config.token = Some(new_token.clone());
+        let config = config.validate()?;
+        if let Some(path) = &path {
+            config.save(path)?;
+            eprintln!("wrote {}", path.display());
+        }
+        println!("{new_token}");
         return Ok(());
     }
 
-    Err(Error::NotImplemented {
-        feature: command.name(),
-    })
-}
-
-impl Command {
-    const fn name(&self) -> &'static str {
-        match self {
-            Self::Run(_) => "run",
-            Self::Replay(_) => "replay",
-            Self::Devices => "devices",
-            Self::Doctor => "doctor",
-            Self::Token(_) => "token",
+    match &config.token {
+        Some(token) => println!("{token}"),
+        None => {
+            eprintln!(
+                "no token configured{}; run `absolutetouch token --reset`",
+                path.map(|path| format!(" in {}", path.display()))
+                    .unwrap_or_default()
+            );
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Command, TransportArg};
     use clap::Parser;
+
+    use super::{Cli, Command, TransportArg, dispatch};
+    use crate::config::Config;
 
     #[test]
     fn parses_doctor() {
@@ -170,5 +260,50 @@ mod tests {
             }
             other => panic!("unexpected command: {other:?}"),
         }
+    }
+
+    #[test]
+    fn token_reset_writes_and_reads_the_file() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let path = directory.path().join("config.toml");
+        let cli = Cli::try_parse_from([
+            "absolutetouch",
+            "--config",
+            path.to_str().expect("path"),
+            "token",
+            "--reset",
+        ])
+        .expect("parse token");
+
+        dispatch(cli).expect("reset token");
+
+        let config = Config::from_file(&path).expect("load");
+        let token = config.token.expect("token");
+        assert_eq!(token.len(), 32);
+        assert_eq!(
+            token,
+            crate::config::encode_hex16(&crate::config::decode_hex16(&token).expect("decode"))
+        );
+    }
+
+    #[test]
+    fn devices_reports_not_implemented() {
+        let cli = Cli::try_parse_from(["absolutetouch", "devices"]).expect("parse devices");
+
+        assert!(matches!(
+            dispatch(cli),
+            Err(crate::error::Error::NotImplemented { .. })
+        ));
+    }
+
+    #[test]
+    fn usb_run_reports_not_implemented() {
+        let cli =
+            Cli::try_parse_from(["absolutetouch", "run", "--transport", "usb"]).expect("parse run");
+
+        assert!(matches!(
+            dispatch(cli),
+            Err(crate::error::Error::NotImplemented { .. })
+        ));
     }
 }
