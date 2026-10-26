@@ -7,8 +7,10 @@ CLI validates them, maps coordinates, and injects them through an OS backend.
 This document describes the intended system. M0 implements the protocol, the
 CLI skeleton, the Swift core package, and manual CI. M1 adds the Wi-Fi UDP
 session on the desktop, trace recording and replay, coordinate mapping, and the
-mock injector. M2 adds the Linux `uinput` absolute tablet. The iPad streaming
-app and the other platform backends are still planned.
+mock injector. M2 adds the Linux `uinput` absolute tablet. M3 adds the iPad
+sender: the UIKit canvas, the Swift session machine and controller, and a Wi-Fi
+UDP transport. The M3 app is covered by core tests on Linux but has not yet been
+validated on real hardware. The other platform backends are still planned.
 
 ## Goals
 
@@ -32,12 +34,12 @@ app and the other platform backends are still planned.
 ```text
 ┌──────────────────────── iPad ────────────────────────┐
 │ AbsoluteTouch app                                    │
-│  ├─ SwiftUI shell (status, pairing)                  │
+│  ├─ SwiftUI shell (pairing, status)                  │
 │  ├─ UIKit drawing surface (M3)                       │
 │  └─ AbsoluteTouchCore                                 │
 │      ├─ Protocol codec (M0)                          │
-│      ├─ Session state machine (M3)                   │
-│      └─ Transports: UDP / TCP listener (M3)          │
+│      ├─ Session machine + controller (M3)            │
+│      └─ Transports: UDP (M3) / TCP listener (M4)     │
 └───────────────┬──────────────────────────────────────┘
                 │ Wi-Fi UDP 37689
                 │ or USB via usbmuxd → TCP 37690
@@ -158,8 +160,8 @@ Mapping is pure and unit-tested without any OS backend.
 
 | Layer | Responsibility | Status |
 | --- | --- | --- |
-| `ios/App` | SwiftUI shell, later the drawing surface | M0 shell |
-| `AbsoluteTouchCore` | Protocol, session, transports | M0 protocol |
+| `ios/App` | SwiftUI pairing shell, UIKit canvas, view model | M3 |
+| `AbsoluteTouchCore` | Protocol, session machine, controller, UDP transport | M3 |
 | UI tests | Not used for protocol logic | - |
 
 ### Why a Swift package
@@ -171,37 +173,74 @@ golden vectors run against the Rust and Swift codecs.
 ### Why SwiftUI plus UIKit
 
 SwiftUI is a good fit for status, pairing, and settings screens. The drawing
-surface needs precise touch timestamps, coalesced touches, predicted touches,
-and stylus altitude/azimuth. A `UIView` receives those through `UIEvent` and
-`UITouch`, which SwiftUI gestures do not expose directly. The app therefore
-uses a SwiftUI shell around a UIKit canvas (M3). See
-[ADR 0004](decisions/0004-ios-shell-and-core-package.md).
+surface needs precise touch timestamps, coalesced touches, and stylus
+altitude/azimuth. A `UIView` receives those through `UIEvent` and `UITouch`,
+which SwiftUI gestures do not expose directly. The app therefore uses a SwiftUI
+shell around a UIKit canvas. See
+[ADR 0004](decisions/0004-ios-shell-and-core-package.md) and
+[ADR 0007](decisions/0007-ios-streaming-session.md).
+
+### Pointer pipeline
+
+- The canvas adopts one pointer at a time. A Pencil that begins contact takes
+  priority over fingers; other touches are ignored until it lifts.
+- Contact samples come from coalesced touches. A `CADisplayLink` re-sends the
+  last position while the Pencil is held, so a stationary contact keeps the
+  desktop watchdog armed without inventing motion.
+- Hover comes from a `UIHoverGestureRecognizer` restricted to Pencil touches.
+  Its location, altitude, and azimuth are normalized with the same functions as
+  contact samples.
+- Lifting the Pencil or leaving hover sends one `outOfRange` sample and then
+  stops.
+- The sample phase is an enum, so an invalid `CONTACT | HOVER` packet cannot be
+  constructed. No predicted samples are sent, and pressure is zero because the
+  reference Pencil (USB-C) does not report it.
+- `PointerNormalization` converts points and radians to wire units. It is pure
+  and tested on Linux, where UIKit is unavailable.
 
 ### Concurrency
 
 The app uses Swift 6 language mode with strict concurrency:
 
-- The canvas and view models are `@MainActor`.
-- A session actor (M3) owns the transport, sequence counter, and session state.
-- Input is batched into the actor instead of spawning one task per touch sample.
-- The UI never blocks on socket writes.
+- The canvas and view model are `@MainActor`.
+- One `SessionController` actor per session owns the transport, state machine,
+  and sequence counter. It is one-shot: starting a new session creates a new
+  actor.
+- The canvas calls a `nonisolated` `submit`, which yields into an `AsyncStream`.
+  One actor task drains it, so the UI never spawns a task per touch sample.
+- Separate actor tasks receive datagrams and run a 20 ms timer. Outgoing packets
+  are flushed in order from whichever task produced them.
+- The UI consumes `AsyncStream<SessionState>` and samples statistics at 4 Hz. It
+  never blocks on socket writes.
 
 Protocol types are value types and `Sendable`. The codec has no shared mutable
 state.
 
 ### Streaming lifecycle
 
-Planned M3 state machine:
-
 ```text
-idle → listening/advertising → handshaking → streaming → stopping
-             ↑                       │            │
-             └──── error/timeout ────┴────────────┘
+idle ──start──▶ connecting(attempt) ──HELLO_ACK──▶ streaming(session)
+                    │  ▲                              │
+                    │  └──── 5000 ms silence ─────────┤
+                    └──── transport error ────────────┴──▶ failed / idle
 ```
 
-Streaming only runs while the app is in the foreground; iOS suspends the app
-when the canvas is not visible, and the desktop watchdog then releases input.
-No background audio or background location tricks are used.
+- `HELLO` is repeated every 500 ms until the desktop sends a matching
+  `HELLO_ACK` with a non-zero session identifier and the same token.
+- While streaming, the app sends heartbeats once per second. A heartbeat echoes
+  the last acknowledged device and host timestamps, which gives the app a
+  round-trip time and clock offset.
+- The sequence counter is not reset when a handshake starts again. The desktop
+  keeps its sequence window across repeated `HELLO`s, so resetting would look
+  like a stale or replayed stream.
+- Five seconds without an accepted packet starts a new handshake with the same
+  token. The transport stays open, so a desktop restart is recovered without
+  returning to the pairing screen.
+- Stopping the session or backgrounding the app sends `BYE` and closes the
+  transport.
+- Streaming only runs while the app is in the foreground; iOS suspends the app
+  otherwise, and the desktop watchdog then releases input. No background audio
+  or background location tricks are used.
 
 ## Transport relationships
 
@@ -228,7 +267,8 @@ No background audio or background location tricks are used.
 - The desktop watchdog releases every button and contact after 750 ms without
   a valid packet; a session ends after 5000 ms of silence, on `BYE`, on
   transport close, and on process shutdown.
-- The iPad stops sending and releases on app backgrounding or transport error.
+- The iPad stops sampling when the app is backgrounded, sends `BYE` on stop or
+  backgrounding, and stops on transport error.
 - `--dry-run` decodes and logs samples without injecting.
 - `doctor` reports missing permissions and device nodes before a session.
 - The token and source-IP pin reduce accidental cross-session injection. They

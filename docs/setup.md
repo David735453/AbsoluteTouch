@@ -2,8 +2,9 @@
 
 This guide covers building the desktop CLI, building the iPad app, and
 preparing Linux for tablet injection. The desktop Wi-Fi session, trace replay,
-and Linux `uinput` backend exist today (M1 and M2); the iPad sender (M3), USB
-(M4), and the Windows/macOS backends (M5, M6) are marked as planned.
+the Linux `uinput` backend, and the iPad sender exist today (M1–M3). The iPad
+app still needs validation on real hardware, and USB (M4) and the Windows/macOS
+backends (M5, M6) are planned.
 
 ## Requirements
 
@@ -162,7 +163,13 @@ Then:
 3. Connect an iPad and run the app, or archive it for TestFlight.
 
 The bundle identifier is `org.dstudios.absolutetouch`. The minimum deployment
-target is iPadOS 17.0.
+target is iPadOS 17.0. The app is iPad-only; it does not run on iPhone.
+
+The first screen is the pairing form. It remembers the address, port, and token
+in `UserDefaults`, so pairing is entered once per iPad. Tapping **Start
+streaming** replaces the form with the full-screen canvas and a session HUD.
+Backgrounding the app ends the session with `BYE`; starting again returns to
+the canvas with the saved values.
 
 ### Local network permission
 
@@ -175,9 +182,10 @@ trusted by the desktop and `usbmuxd` to see the device.
 
 ## Streaming
 
-The desktop Wi-Fi receiver (M1) and the Linux `uinput` backend (M2) are
-implemented. The iPad sender arrives in M3 and USB in M4, so `--transport usb`
-and `devices` still report "not implemented".
+The desktop Wi-Fi receiver (M1), the Linux `uinput` backend (M2), and the iPad
+sender (M3) are implemented. The iPad app has not yet been validated on real
+hardware. USB (M4) is still planned, so `--transport usb` and `devices` report
+"not implemented".
 
 ```sh
 # Normal Linux path: receive over Wi-Fi and inject through uinput
@@ -209,6 +217,39 @@ absolutetouch token --reset
 and prints each sample, even when another backend is configured. Replay without
 `--dry-run` injects the recorded samples; use `--dry-run` when you only want to
 inspect a trace.
+
+### Wi-Fi end-to-end
+
+1. Find the desktop's LAN address (`ip addr` on Linux) and allow inbound UDP
+   37689 in its firewall.
+2. Start the receiver:
+
+   ```sh
+   cd desktop
+   cargo run -- run
+   ```
+
+   It prints `listening on udp 0.0.0.0:37689`. Use
+   `cargo run -- run --dry-run` to watch samples on the terminal instead of
+   injecting them.
+3. Read the pairing token with `cargo run -- token`, or create one with
+   `cargo run -- token --reset`. The reset form rewrites the config file.
+4. Build and run the iPad app, then enter the address, port 37689, and the
+   token. Tap **Start streaming** and allow local network access on first use.
+5. The desktop prints `session N accepted from PEER` and the app HUD changes to
+   **Streaming**. Touch and drag on the canvas to move the cursor; hover the
+   Pencil to send hover samples; lift the Pencil to send an out-of-range
+   sample.
+6. Tapping **Stop** or backgrounding the app sends `BYE`, and the desktop
+   releases input immediately.
+
+The app repeats `HELLO` every 500 ms until the desktop accepts, sends a
+heartbeat once per second while idle, and sends samples while the Pencil moves
+or is held. If the desktop disappears for five seconds the app starts a new
+handshake with the same token, so restarting the desktop does not require
+touching the iPad. The most common failure is a token mismatch: both sides must
+have the same 32 hexadecimal characters. The app accepts pasted text with
+spaces, `-`, or `:` separators.
 
 ### Ports
 
@@ -293,7 +334,10 @@ address that completed the handshake, so another peer cannot take over.
 Regenerating the token invalidates the old pairing.
 
 The token is sent in clear text and is not encryption. Use it on a trusted
-network, or use USB. The iPad-side token entry arrives with the app in M3.
+network, or use USB. Enter the same token in the iPad app; it is kept in the
+app's `UserDefaults`, which is convenient but not secure storage. When the
+desktop has no token configured it accepts any token and echoes it back, so
+configuring one is recommended even on a home network.
 
 ## osu!
 
@@ -318,6 +362,10 @@ select it where the game or desktop asks for a tablet.
 | Symptom | Check |
 | --- | --- |
 | No cursor movement | `doctor`, firewall, correct desktop IP, token, iPad foreground |
+| App stays on **Connecting** | Same network, port 37689, matching token, desktop logs; check the app's token field |
+| **Connecting** for a few seconds after a crash | The desktop still holds the old peer; it clears after the 5000 ms session timeout |
+| App says **Disconnected** | The transport closed: relaunch the app, check Wi-Fi, then start again |
+| Hover works but contact does not | Pencil tip, app foreground, canvas not covered by the HUD |
 | Cursor moves but buttons stick | Stop the desktop; the watchdog should release. Report a bug with a trace |
 | `doctor` says `/dev/uinput` missing | Load the module, fix the udev rule, log out and in |
 | `uinput` is present but not writable | Recheck the udev rule and group membership; `newgrp input` or log in again |

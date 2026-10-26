@@ -6,9 +6,12 @@ AbsoluteTouch streams Apple Pencil and finger input from an iPad to a desktop
 machine and injects it as an absolute tablet. The iPad is the input device; the
 Rust desktop CLI is the receiver and OS-level injector.
 
-**Current status:** M2 (M1 desktop Wi-Fi session, config, mapping, trace replay,
-mock injector plus the Linux `uinput` absolute tablet). The iPad app has not
-been built yet, and Windows/macOS injection is not implemented.
+**Current status:** M3 in progress. The desktop is at M2 (Wi-Fi session,
+config, mapping, trace replay, mock injector, Linux `uinput` absolute tablet).
+The iPad sender — pairing form, UIKit canvas, Swift session machine/controller,
+and Wi-Fi UDP transport — is implemented and unit-tested on Linux, but it has
+not been built for a device or validated on real hardware yet. Windows/macOS
+injection is not implemented.
 
 **Read first:**
 
@@ -145,7 +148,7 @@ README.md              public overview and quick start
 protocol/              40-byte wire format and golden vectors
 desktop/               Rust CLI, protocol, mapping, injectors
 ios/AbsoluteTouchCore/ Swift package with UI-free logic and tests
-ios/App/               SwiftUI app shell (M0 placeholder)
+ios/App/               SwiftUI pairing shell and UIKit canvas
 ios/project.yml        XcodeGen project definition
 docs/                  architecture, protocol, setup, testing, ADRs
 .github/workflows/     manual, per-platform CI
@@ -164,7 +167,8 @@ and regenerate on macOS.
 - [x] Manual CI workflows for all platforms (defined; first runs pending)
 - [x] M1: desktop session, UDP, config, replay, mock injector
 - [x] M2: Linux `uinput` backend
-- [ ] M3: iPad app, Wi-Fi end-to-end, hover
+- [ ] M3: iPad app, Wi-Fi end-to-end, hover (sender implemented; hardware
+      validation pending)
 - [ ] M4: USB via `usbmuxd`
 - [ ] M5: Windows backends (beta)
 - [ ] M6: macOS backend, TestFlight, releases

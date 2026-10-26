@@ -4,10 +4,11 @@ AbsoluteTouch turns an iPad and Apple Pencil into an absolute graphics tablet fo
 a desktop computer. It streams Pencil position, contact, tilt, hover, and eraser
 state over Wi-Fi UDP or USB, then injects it as an absolute device.
 
-The project is in early development. **M2** adds the Linux `uinput` absolute
-tablet, so on Linux the desktop can inject real input. The iPad app that sends
-input arrives in M3; until then, use `--dry-run`, recorded traces, or the mock
-backend.
+The project is in early development. **M3** adds the iPad sender: a pairing
+screen, a UIKit canvas that captures Pencil and finger input, and a Wi-Fi UDP
+session that streams hover and tilt to the desktop. The app has not yet been
+validated on real hardware, so treat M3 as beta; the Linux desktop path (M2) is
+the validated reference.
 
 ## Status
 
@@ -16,10 +17,9 @@ backend.
 | Protocol + golden vectors | Implemented and tested         |
 | Desktop Wi-Fi session     | Implemented and tested (M1)    |
 | Swift core package        | Implemented and tested         |
-| iOS app                   | Placeholder shell              |
-| Wi-Fi sender on the iPad  | Planned (M3)                   |
-| USB streaming             | Planned (M4)                   |
 | Linux `uinput` tablet     | Implemented and tested (M2)    |
+| iPad app + Wi-Fi sender   | Implemented, needs hardware validation (M3) |
+| USB streaming             | Planned (M4)                   |
 | Windows / macOS injection | Planned (M5/M6)                |
 | TestFlight / releases     | Workflows ready (manual)       |
 
@@ -61,6 +61,17 @@ cargo run -- run --backend mock --record demo.atrace
 cargo run -- replay demo.atrace --dry-run
 ```
 
+On the iPad, generate the Xcode project from `ios/project.yml`, run the app,
+and enter the desktop's LAN address, port `37689`, and the token. See
+[setup](docs/setup.md) for the full pairing walkthrough.
+
+```sh
+brew install xcodegen
+cd ios
+xcodegen generate --spec project.yml
+open AbsoluteTouch.xcodeproj
+```
+
 Build and run the desktop CLI:
 
 ```sh
@@ -74,7 +85,7 @@ cargo run -- doctor
 protocol/               Wire format and shared golden vectors
 desktop/                Rust CLI and desktop library
 ios/AbsoluteTouchCore/  UI-free Swift logic with tests
-ios/App/                SwiftUI app shell
+ios/App/                SwiftUI pairing shell and UIKit canvas
 docs/                   Architecture, protocol, setup, testing, ADRs
 .github/workflows/      Manual, per-platform CI
 ```

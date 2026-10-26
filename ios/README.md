@@ -1,8 +1,26 @@
 # iOS app
 
-The iPad app is a SwiftUI shell that links the UI-free `AbsoluteTouchCore`
-package. M0 contains only a status screen; the UIKit drawing surface and the
-streaming pipeline arrive in M3.
+The iPad app is a SwiftUI pairing shell around a UIKit canvas. It links the
+UI-free `AbsoluteTouchCore` package, which owns the protocol codec, the session
+machine, and the Wi-Fi UDP transport. M3 implements the first end-to-end sender;
+it still needs validation on a real iPad and Pencil.
+
+## Structure
+
+| Path | Contents |
+| --- | --- |
+| `App/ContentView.swift` | Pairing form: address, port, token, start button |
+| `App/StreamingView.swift` | Full-screen canvas, session HUD, failure overlay |
+| `App/CanvasView.swift` | UIKit touch, hover, and coalesced-sample capture |
+| `App/StreamingViewModel.swift` | Observable session owner and statistics polling |
+| `AbsoluteTouchCore/Sources/` | Protocol, `SessionMachine`, `SessionController`, UDP transport |
+| `AbsoluteTouchCore/Tests/` | Core tests, including the shared golden vectors |
+
+The canvas sends contact samples from coalesced touches plus a display-link
+keepalive, hover samples from a Pencil-only `UIHoverGestureRecognizer`, and one
+out-of-range sample when the Pencil lifts. The session repeats `HELLO` every
+500 ms, sends a heartbeat once per second, and re-handshakes after five seconds
+of silence. Stopping or backgrounding the app sends `BYE`.
 
 ## Requirements
 
@@ -46,8 +64,12 @@ The UI-free logic lives in `AbsoluteTouchCore` and runs on Linux and macOS:
 swift test --package-path ios/AbsoluteTouchCore
 ```
 
-Golden vectors are read from `protocol/vectors.json` in the repository root, so
-the Rust and Swift suites always check the same bytes.
+The suite covers the protocol and shared golden vectors, pairing-token parsing,
+coordinate and angle normalization, the session state machine (handshake,
+heartbeats, timeouts, sequence wrap), and the controller against a fake
+datagram transport. The app target itself needs Xcode; CI builds it unsigned
+for the simulator, and real behavior is checked with the manual M3 checklist in
+[`docs/testing.md`](../docs/testing.md).
 
 ## TestFlight
 

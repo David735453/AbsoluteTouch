@@ -20,6 +20,9 @@ compile.
 | UDP tests | Local socket receive, decode errors, replies, shutdown | `desktop/src/transport/udp.rs` |
 | End-to-end | HELLO/SAMPLE/BYE over loopback, record then replay | `desktop/src/run.rs` |
 | Swift core tests | Same protocol and vectors as Rust | `ios/AbsoluteTouchCore/Tests/` |
+| Swift session tests | Handshake, heartbeat RTT, timeout re-handshake, sequence wrap | `ios/AbsoluteTouchCore/Tests/AbsoluteTouchCoreTests/SessionMachineTests.swift` |
+| Swift controller tests | Fake datagram transport, state stream, failure, `BYE` | `ios/AbsoluteTouchCore/Tests/AbsoluteTouchCoreTests/SessionControllerTests.swift` |
+| Swift pointer tests | Coordinate/angle normalization, phase flags, token parsing | `PointerSampleTests.swift`, `PairingTokenTests.swift` |
 | Manual hardware tests | Real Pencil, real backend, real OS | Checklist below |
 
 ## Commands
@@ -39,6 +42,9 @@ cargo fmt --all -- --check
 # Swift core only, on Linux or macOS
 swift test --package-path ios/AbsoluteTouchCore
 swift format lint --strict --recursive ios/AbsoluteTouchCore ios/App
+
+# The app target needs Xcode; CI builds it unsigned for the simulator
+xcodegen generate --spec ios/project.yml
 
 # Optional SwiftLint (repository config in .swiftlint.yml)
 swiftlint lint --quiet --strict
@@ -170,6 +176,22 @@ backend, transport, iPad model, and Pencil model to the result.
 - [ ] A second iPad with the wrong token or source IP cannot take over.
 - [ ] `BYE` ends the session and releases input.
 
+### iPad app (M3)
+
+- [ ] The pairing screen keeps the address, port, and token across launches.
+- [ ] The first session shows the local network prompt.
+- [ ] The HUD shows **Connecting** and then **Streaming** within one second of
+      `HELLO_ACK`.
+- [ ] A wrong token stays on **Connecting** and is rejected in the desktop log.
+- [ ] Rotating the iPad, or switching to Split View, keeps the active area
+      aligned with the canvas bounds.
+- [ ] Holding the Pencil still for longer than the watchdog window keeps the
+      contact alive.
+- [ ] Lifting the Pencil sends an out-of-range sample and clears contact.
+- [ ] Stopping and backgrounding send `BYE`; the desktop releases immediately.
+- [ ] Restarting the desktop mid-session re-handshakes without the user
+      restarting the app, and the desktop accepts samples afterwards.
+
 ### Position and contact
 
 - [ ] Cursor reaches all four corners of the configured target.
@@ -181,7 +203,7 @@ backend, transport, iPad model, and Pencil model to the result.
 
 - [ ] Hover moves the cursor without pressing.
 - [ ] Leaving range sends `OUT_OF_RANGE` and clears hover.
-- [ ] Tilt changes both axes in a tablet tester.
+- [ ] Tilt changes both axes in a tablet tester, for contact and for hover.
 - [ ] Pressure is present only on hardware that supports it; the reference
       Pencil (USB-C) uses the default level.
 - [ ] Eraser and finger samples behave as configured.
@@ -208,6 +230,9 @@ backend, transport, iPad model, and Pencil model to the result.
 
 - **Linux** is the reference platform. It is supported after the M2 manual
   checklist passes on real hardware.
+- **The iPad app** is beta until the M3 manual checklist passes on a real iPad
+  and Pencil. A green core test run or a simulator build does not make it
+  supported.
 - **Windows** and **macOS** are beta until their manual checklists pass on real
   hardware. A green compile job is not support.
 - **TestFlight** builds are beta by definition; they do not imply App Store

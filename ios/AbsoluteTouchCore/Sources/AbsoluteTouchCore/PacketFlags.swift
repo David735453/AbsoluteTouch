@@ -46,4 +46,14 @@ public struct PacketFlags: OptionSet, Sendable, Hashable {
 
 	/// The sender supports twist.
 	public static let capabilityTwist = PacketFlags(rawValue: 1 << 11)
+
+	/// Every pointer flag defined by version 1.
+	public static let pointerMask: PacketFlags = [
+		.contact, .hover, .eraser, .barrel, .predicted, .outOfRange, .finger,
+	]
+
+	/// Every capability flag defined by version 1.
+	public static let capabilityMask: PacketFlags = [
+		.capabilityPressure, .capabilityTilt, .capabilityHover, .capabilityTwist,
+	]
 }
