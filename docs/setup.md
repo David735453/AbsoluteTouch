@@ -1,9 +1,9 @@
 # Setup
 
 This guide covers building the desktop CLI, building the iPad app, and
-preparing Linux for tablet injection. The desktop Wi-Fi session and trace replay
-exist today (M1); the iPad sender (M3), USB (M4), and OS backends (M2, M5, M6)
-are marked as planned.
+preparing Linux for tablet injection. The desktop Wi-Fi session, trace replay,
+and Linux `uinput` backend exist today (M1 and M2); the iPad sender (M3), USB
+(M4), and the Windows/macOS backends (M5, M6) are marked as planned.
 
 ## Requirements
 
@@ -12,7 +12,7 @@ are marked as planned.
 | Desktop | Rust 1.85 or newer (edition 2024) |
 | iPad app build | macOS, Xcode 27, XcodeGen |
 | iOS | iPadOS 17.0 or newer |
-| Linux backend | `/dev/uinput` access |
+| Linux backend | Write access to `/dev/uinput`; read access to `/dev/input/event*` for `evtest` |
 | Swift core tests | Swift 6.4 or newer (Linux or macOS) |
 
 The core package declares `swift-tools-version: 6.4`; CI runs it in the
@@ -79,13 +79,17 @@ absolutetouch run --dry-run --record session.atrace
 # Mock backend: records injector decisions without touching the OS
 absolutetouch run --backend mock --record session.atrace
 
+# Linux: inject through uinput while recording
+absolutetouch run --record session.atrace
+
 # Replay through the same session and mapping code, no socket
 absolutetouch replay session.atrace --dry-run
 absolutetouch replay session.atrace --speed 2
 ```
 
-M1 has no OS backend yet, so `--backend mock` and `--dry-run` are the supported
-session modes. Linux `uinput` arrives in M2.
+`--backend mock` and `--dry-run` never touch the OS. Replay without `--dry-run`
+injects the recorded samples; use `--dry-run` when you only want to inspect a
+trace.
 
 ### Linux: `/dev/uinput`
 
@@ -123,7 +127,21 @@ sudo usermod -aG input "$USER"
 ```
 
 Verify with `cargo run -- doctor`; it should print `uinput: present and
-writable`.
+writable`. Reading `/dev/input/event*` is only needed for verification with
+`evtest`; the desktop writes samples and does not read them back.
+
+Start a session and check that the device is registered:
+
+```sh
+grep -A12 "AbsoluteTouch Tablet" /proc/bus/input/devices
+```
+
+The entry should show `EV=b` (key, absolute axes, and synchronization) and an
+`ABS=` mask covering `ABS_X`, `ABS_Y`, `ABS_PRESSURE`, `ABS_TILT_X`, and
+`ABS_TILT_Y`. The `KEY=` mask covers `BTN_TOOL_PEN`, `BTN_TOOL_RUBBER`,
+`BTN_TOOL_FINGER`, `BTN_TOUCH`, and `BTN_STYLUS`. While the process runs, the
+device appears as **AbsoluteTouch Tablet** in desktop input settings and in
+`libinput list-devices`.
 
 ## iPad app
 
@@ -157,20 +175,27 @@ trusted by the desktop and `usbmuxd` to see the device.
 
 ## Streaming
 
-The desktop Wi-Fi receiver is implemented (M1). The iPad sender arrives in M3
-and USB in M4, so `--transport usb` and `devices` still report "not
-implemented".
+The desktop Wi-Fi receiver (M1) and the Linux `uinput` backend (M2) are
+implemented. The iPad sender arrives in M3 and USB in M4, so `--transport usb`
+and `devices` still report "not implemented".
 
 ```sh
-# Wi-Fi, recording injector decisions without touching the OS (M1)
-absolutetouch run --backend mock --record session.atrace
+# Normal Linux path: receive over Wi-Fi and inject through uinput
+absolutetouch run
 
-# Decode and print without injecting
+# Same, with the backend named explicitly
+absolutetouch run --backend uinput
+
+# Record the session while injecting
+absolutetouch run --record session.atrace
+
+# Decode and print without creating a device
 absolutetouch run --dry-run
+absolutetouch run --backend mock
 
-# Replay a trace through the same session and mapping code
-absolutetouch replay session.atrace --dry-run
+# Replay a trace; without --dry-run this injects into the desktop
 absolutetouch replay session.atrace --speed 2
+absolutetouch replay session.atrace --dry-run
 
 # Inspect the environment
 absolutetouch doctor
@@ -180,8 +205,10 @@ absolutetouch token
 absolutetouch token --reset
 ```
 
-Once the Linux `uinput` backend lands in M2, `absolutetouch run` without
-`--backend mock` or `--dry-run` becomes the normal path.
+`auto` selects `uinput` on Linux. `--dry-run` always selects the mock backend
+and prints each sample, even when another backend is configured. Replay without
+`--dry-run` injects the recorded samples; use `--dry-run` when you only want to
+inspect a trace.
 
 ### Ports
 
@@ -243,7 +270,7 @@ backend = "auto"
 [mapping]
 aspect = "preserve"
 source_aspect = 1.3333333333333333
-# Filled from the display in M2; without it the mapping stretches.
+# Set this to the desktop aspect ratio; without it the mapping stretches.
 # target_aspect = 1.7777777777777777
 
 [mapping.target]
@@ -283,7 +310,8 @@ The target is both osu! stable and osu! lazer.
 
 The iPad active area maps to a configurable desktop rectangle. Use the osu!
 tablet area settings or the AbsoluteTouch mapping options, not both in
-conflicting ways.
+conflicting ways. On Linux the virtual device is named **AbsoluteTouch Tablet**;
+select it where the game or desktop asks for a tablet.
 
 ## Troubleshooting
 
@@ -292,10 +320,13 @@ conflicting ways.
 | No cursor movement | `doctor`, firewall, correct desktop IP, token, iPad foreground |
 | Cursor moves but buttons stick | Stop the desktop; the watchdog should release. Report a bug with a trace |
 | `doctor` says `/dev/uinput` missing | Load the module, fix the udev rule, log out and in |
+| `uinput` is present but not writable | Recheck the udev rule and group membership; `newgrp input` or log in again |
+| No **AbsoluteTouch Tablet** device | The session process must be running; check `/proc/bus/input/devices` |
+| Game ignores the tablet | Select the device explicitly, or check Raw Input/tablet settings |
 | Local network prompt never appears | Reinstall or reset the app; check Settings → Privacy → Local Network |
 | USB device not listed | Trust the iPad, check `usbmuxd`, try `idevice_id -l` |
 | iOS build fails on signing | Set the development team; CI builds use `CODE_SIGNING_ALLOWED=NO` |
 | TestFlight upload fails | Check the `testflight` environment secrets and API key permissions |
 
-When reporting a bug, include the OS, backend, transport, and a recorded trace
-when M1 lands. Never include tokens or personal network details.
+When reporting a bug, include the OS, backend, transport, and a recorded trace.
+Never include tokens or personal network details.

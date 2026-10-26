@@ -6,13 +6,13 @@
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
-use crate::mapping::{MappedSample, Mapping, TabletSample};
+use crate::mapping::{MappedSample, Mapping, TabletSample, Tilt};
 use crate::protocol::packet::Packet;
 use crate::protocol::types::{PacketType, flags};
 use crate::stats::Stats;
 
 /// Capability bits the reference host can consume.
-pub const HOST_CAPS: u16 = flags::CAP_TILT | flags::CAP_HOVER;
+pub const HOST_CAPS: u16 = flags::CAP_PRESSURE | flags::CAP_TILT | flags::CAP_HOVER;
 
 /// Mask of the capability bits defined by version 1.
 pub const CAP_MASK: u16 =
@@ -531,12 +531,17 @@ impl<I: SessionIds> Session<I> {
             self.config.pressure_default
         };
 
+        let tilt = if caps & flags::CAP_TILT != 0 && packet.flags & flags::FINGER == 0 {
+            Some(Tilt::from_angles(packet.altitude, packet.azimuth))
+        } else {
+            None
+        };
+
         TabletSample {
             x: packet.x,
             y: packet.y,
             pressure,
-            altitude: packet.altitude,
-            azimuth: packet.azimuth,
+            tilt,
             twist: packet.twist,
             contact: packet.flags & flags::CONTACT != 0,
             hover: packet.flags & flags::HOVER != 0,
@@ -835,6 +840,57 @@ mod tests {
 
         match session.take_actions().as_slice() {
             [Action::Inject(mapped)] => assert_eq!(mapped.pressure, 12_345),
+            other => panic!("unexpected actions: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn host_advertises_pressure_tilt_and_hover() {
+        assert_eq!(
+            HOST_CAPS,
+            flags::CAP_PRESSURE | flags::CAP_TILT | flags::CAP_HOVER
+        );
+    }
+
+    #[test]
+    fn tilt_is_projected_when_the_ipad_supports_it() {
+        let started = Instant::now();
+        let mut session = session(started);
+        handshake(&mut session, started);
+
+        let mut packet = sample(1, 1, 1);
+        packet.altitude = 0;
+        packet.azimuth = 0;
+        session.handle(peer(), &packet, started);
+
+        match session.take_actions().as_slice() {
+            [Action::Inject(mapped)] => {
+                assert_eq!(mapped.tilt, Some(crate::mapping::Tilt { x: 90, y: 0 }));
+            }
+            other => panic!("unexpected actions: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tilt_is_absent_without_the_capability_or_for_a_finger() {
+        let started = Instant::now();
+        let mut session = session(started);
+        let mut hello = hello(TOKEN);
+        hello.flags = flags::CAP_HOVER;
+        session.handle(peer(), &hello, started);
+        session.take_actions();
+
+        session.handle(peer(), &sample(1, 1, 1), started);
+        match session.take_actions().as_slice() {
+            [Action::Inject(mapped)] => assert_eq!(mapped.tilt, None),
+            other => panic!("unexpected actions: {other:?}"),
+        }
+
+        let mut finger = sample(2, 2, 2);
+        finger.flags = flags::CONTACT | flags::FINGER;
+        session.handle(peer(), &finger, started);
+        match session.take_actions().as_slice() {
+            [Action::Inject(mapped)] => assert_eq!(mapped.tilt, None),
             other => panic!("unexpected actions: {other:?}"),
         }
     }

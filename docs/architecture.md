@@ -7,7 +7,8 @@ CLI validates them, maps coordinates, and injects them through an OS backend.
 This document describes the intended system. M0 implements the protocol, the
 CLI skeleton, the Swift core package, and manual CI. M1 adds the Wi-Fi UDP
 session on the desktop, trace recording and replay, coordinate mapping, and the
-mock injector. OS injection and the iPad streaming app are still planned.
+mock injector. M2 adds the Linux `uinput` absolute tablet. The iPad streaming
+app and the other platform backends are still planned.
 
 ## Goals
 
@@ -69,7 +70,7 @@ The desktop is a single Rust crate with a library and a thin binary.
 | `transport::trace` | Record and replay packet traces | M1 |
 | `session` | Handshake, sequence window, heartbeats, watchdog | M1 |
 | `mapping` | Normalized device → target rectangle | M1 |
-| `inject` | Injector trait, mock recorder, platform backends | M1 mock, M2/M5/M6 backends |
+| `inject` | Injector trait, mock recorder, platform backends | M1 mock, M2 uinput; M5/M6 planned |
 | `stats` | Counters for drops, latency, errors | M1 |
 
 ### Session pipeline
@@ -93,7 +94,7 @@ Implemented M1 flow:
    the same release path. The runner calls `release_all` once more before it
    returns.
 
-The design deliberately avoids an async runtime in M1. At 60 Hz a single
+The design deliberately avoids an async runtime through M2. At 60 Hz a single
 receiver thread plus a tight session loop is simpler to reason about than a
 task graph, and the polled socket doubles as the idle wait. Later backends can
 change this if measurements justify it.
@@ -119,8 +120,12 @@ trait Injector {
 
 - `MockInjector` records events for tests and supports assertions on exact
   sequences.
-- The Linux backend uses `uinput` (M2). It is the reference implementation and
-  supports pressure, tilt, hover, and eraser.
+- The Linux backend (M2) registers an `AbsoluteTouch Tablet` `uinput` device
+  with `ABS_X`/`ABS_Y` (`0..=65535`), `ABS_PRESSURE`, `ABS_TILT_X`/`ABS_TILT_Y`
+  (`-90..=90` degrees), and the pen, rubber, finger, touch, and stylus keys.
+  Hover is the tool in range with `BTN_TOUCH` clear. Releasing clears every
+  button, pressure, and tilt without moving the cursor. See
+  [ADR 0006](decisions/0006-linux-uinput-tablet.md).
 - Windows uses a synthetic pen device where possible and `SendInput` as a
   fallback (M5, beta).
 - macOS uses `CGEvent` mouse events (M6, beta). It requires Accessibility
@@ -136,8 +141,8 @@ rectangle:
 
 - Default target: the full desktop, as a normalized rectangle.
 - Default aspect behavior: `preserve`, which letterboxes the active area inside
-  the target and centers it. Until the desktop aspect ratio is known (M2 fills
-  it from the display) preserve falls back to stretching.
+  the target and centers it. Until the desktop aspect ratio is configured,
+  preserve falls back to stretching.
 - No smoothing or prediction on the host by default. Predicted samples from the
   iPad are flagged and are not injected as separate contacts.
 - Pressure defaults to 32,768 when `CAP_PRESSURE` is absent.

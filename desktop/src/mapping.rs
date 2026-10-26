@@ -6,6 +6,35 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Tilt projected onto two perpendicular axes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Tilt {
+    /// Tilt toward the positive X axis, in degrees, `-90..=90`.
+    pub x: i8,
+    /// Tilt toward the positive Y axis, in degrees, `-90..=90`.
+    pub y: i8,
+}
+
+impl Tilt {
+    /// Project wire altitude and azimuth onto X/Y tilt in degrees.
+    ///
+    /// Altitude runs from `0` (parallel to the screen) to [`u16::MAX`]
+    /// (perpendicular). Azimuth is a full turn, zero along `+x` and a quarter
+    /// turn toward `+y`. The result is the angle from vertical projected onto
+    /// each axis, which matches what `ABS_TILT_X` and `ABS_TILT_Y` expect.
+    #[must_use]
+    pub fn from_angles(altitude: u16, azimuth: u16) -> Self {
+        let altitude_deg = f64::from(altitude) / f64::from(u16::MAX) * 90.0;
+        let azimuth_rad = f64::from(azimuth) / 65_536.0 * std::f64::consts::TAU;
+        let from_vertical = 90.0 - altitude_deg;
+
+        Self {
+            x: (from_vertical * azimuth_rad.cos()).round() as i8,
+            y: (from_vertical * azimuth_rad.sin()).round() as i8,
+        }
+    }
+}
+
 /// A pointer state as received from the iPad.
 #[expect(
     clippy::struct_excessive_bools,
@@ -19,10 +48,8 @@ pub struct TabletSample {
     pub y: u16,
     /// Pressure in `0..=65535`; meaningful only when the iPad supports it.
     pub pressure: u16,
-    /// Tilt altitude in `0..=65535`.
-    pub altitude: u16,
-    /// Tilt azimuth in `0..=65535`.
-    pub azimuth: u16,
+    /// Tilt in degrees, or `None` when unavailable or from a finger.
+    pub tilt: Option<Tilt>,
     /// Twist in `0..=65535`; reserved on current hardware.
     pub twist: u16,
     /// The tip is touching the screen.
@@ -52,10 +79,8 @@ pub struct MappedSample {
     pub y: u16,
     /// Pressure in `0..=65535`, after capability fallback.
     pub pressure: u16,
-    /// Tilt altitude in `0..=65535`.
-    pub altitude: u16,
-    /// Tilt azimuth in `0..=65535`.
-    pub azimuth: u16,
+    /// Tilt in degrees, or `None` when unavailable or from a finger.
+    pub tilt: Option<Tilt>,
     /// Twist in `0..=65535`.
     pub twist: u16,
     /// The tip is touching the screen.
@@ -227,8 +252,7 @@ impl Mapping {
             x: map_axis(sample.x, rect.x, rect.width),
             y: map_axis(sample.y, rect.y, rect.height),
             pressure: sample.pressure,
-            altitude: sample.altitude,
-            azimuth: sample.azimuth,
+            tilt: sample.tilt,
             twist: sample.twist,
             contact: sample.contact,
             hover: sample.hover,
@@ -253,15 +277,14 @@ fn map_axis(value: u16, offset: u16, span: u16) -> u16 {
 
 #[cfg(test)]
 mod tests {
-    use super::{AspectMode, MappedSample, Mapping, Rect, TabletSample};
+    use super::{AspectMode, MappedSample, Mapping, Rect, TabletSample, Tilt};
 
     fn sample(x: u16, y: u16) -> TabletSample {
         TabletSample {
             x,
             y,
             pressure: 1_234,
-            altitude: 5_678,
-            azimuth: 9_012,
+            tilt: Some(Tilt { x: 12, y: -34 }),
             twist: 0,
             contact: true,
             hover: false,
@@ -286,10 +309,28 @@ mod tests {
         let mapped: MappedSample = Mapping::full().map(&sample(1, 2));
 
         assert_eq!(mapped.pressure, 1_234);
-        assert_eq!(mapped.altitude, 5_678);
-        assert_eq!(mapped.azimuth, 9_012);
+        assert_eq!(mapped.tilt, Some(Tilt { x: 12, y: -34 }));
         assert!(mapped.contact);
         assert!(!mapped.hover);
+    }
+
+    #[test]
+    fn tilt_is_zero_when_the_pencil_is_perpendicular() {
+        assert_eq!(Tilt::from_angles(u16::MAX, 0), Tilt { x: 0, y: 0 });
+    }
+
+    #[test]
+    fn tilt_projects_altitude_onto_the_azimuth_axis() {
+        // Flat, pointing along +x.
+        assert_eq!(Tilt::from_angles(0, 0), Tilt { x: 90, y: 0 });
+        // Flat, quarter turn toward +y.
+        assert_eq!(Tilt::from_angles(0, 16_384), Tilt { x: 0, y: 90 });
+        // Flat, half turn toward -x.
+        assert_eq!(Tilt::from_angles(0, 32_768), Tilt { x: -90, y: 0 });
+        // 45 degrees from the screen along +x.
+        let diagonal = Tilt::from_angles(u16::MAX / 2, 0);
+        assert!((44..=45).contains(&diagonal.x));
+        assert_eq!(diagonal.y, 0);
     }
 
     #[test]

@@ -14,7 +14,8 @@ compile.
 | Config tests | Defaults, precedence, validation, example file | `desktop/src/config.rs` |
 | Mapping tests | Stretch, offset, letterbox, flag passthrough | `desktop/src/mapping.rs` |
 | Session tests | Handshake, token, peer pin, sequence window, heartbeat, watchdog | `desktop/src/session.rs` |
-| Injector tests | Exact event sequences through `MockInjector` | `desktop/src/inject/mock.rs` |
+| Injector tests (mock) | Exact event sequences through `MockInjector` | `desktop/src/inject/mock.rs` |
+| Injector tests (Linux) | Frames, tilt, tool switching, release; real device when permitted | `desktop/src/inject/linux.rs` |
 | Trace tests | Round-trip, offsets, truncation, corrupt packets | `desktop/src/transport/trace.rs` |
 | UDP tests | Local socket receive, decode errors, replies, shutdown | `desktop/src/transport/udp.rs` |
 | End-to-end | HELLO/SAMPLE/BYE over loopback, record then replay | `desktop/src/run.rs` |
@@ -144,7 +145,7 @@ desktop CLI records received packets and replays them through the same session
 and mapping code:
 
 ```sh
-absolutetouch run --backend mock --record session.atrace
+absolutetouch run --record session.atrace
 absolutetouch replay session.atrace --dry-run
 absolutetouch replay session.atrace --speed 2
 ```
@@ -162,6 +163,8 @@ backend, transport, iPad model, and Pencil model to the result.
 ### Connection
 
 - [ ] `doctor` reports the backend and permissions correctly.
+- [ ] On Linux, `run` registers **AbsoluteTouch Tablet** with the expected axes
+      and keys in `/proc/bus/input/devices` and `libinput list-devices`.
 - [ ] `HELLO` / `HELLO_ACK` completes within one second.
 - [ ] A wrong token is rejected and logged.
 - [ ] A second iPad with the wrong token or source IP cannot take over.

@@ -6,8 +6,9 @@ AbsoluteTouch streams Apple Pencil and finger input from an iPad to a desktop
 machine and injects it as an absolute tablet. The iPad is the input device; the
 Rust desktop CLI is the receiver and OS-level injector.
 
-**Current status:** M1 (desktop Wi-Fi session, config, mapping, trace replay,
-mock injector). The iPad app and OS injection are not implemented yet.
+**Current status:** M2 (M1 desktop Wi-Fi session, config, mapping, trace replay,
+mock injector plus the Linux `uinput` absolute tablet). The iPad app has not
+been built yet, and Windows/macOS injection is not implemented.
 
 **Read first:**
 
@@ -68,6 +69,7 @@ cargo test --all-targets
 cargo clippy --all-targets -- -D warnings
 cargo fmt --all -- --check
 cargo run -- doctor
+cargo run -- run
 cargo run -- run --backend mock
 cargo run -- replay demo.atrace --dry-run
 
@@ -161,7 +163,7 @@ and regenerate on macOS.
 - [x] Swift protocol implementation and tests
 - [x] Manual CI workflows for all platforms (defined; first runs pending)
 - [x] M1: desktop session, UDP, config, replay, mock injector
-- [ ] M2: Linux `uinput` backend
+- [x] M2: Linux `uinput` backend
 - [ ] M3: iPad app, Wi-Fi end-to-end, hover
 - [ ] M4: USB via `usbmuxd`
 - [ ] M5: Windows backends (beta)

@@ -156,18 +156,18 @@ fn run_session(args: RunArgs, config_path: Option<&Path>) -> Result<(), Error> {
 
 fn replay_trace(args: &ReplayArgs, config_path: Option<&Path>) -> Result<(), Error> {
     let overrides = Overrides {
-        dry_run: Some(args.dry_run),
+        dry_run: args.dry_run.then_some(true),
         ..Overrides::default()
     };
     let config = Config::load(config_path)?
         .apply_overrides(&overrides)
         .validate()?;
-    let mut injector = backend(&config.backend, true)?;
+    let mut injector = backend(&config.backend, config.dry_run)?;
 
     let report = run::replay(
         &args.file,
         args.speed,
-        args.dry_run,
+        config.dry_run,
         &config,
         injector.as_mut(),
     )?;

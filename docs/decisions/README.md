@@ -10,6 +10,7 @@ context, the decision, and the consequences.
 | [0003](0003-linux-first-backends.md) | Linux `uinput` is the reference; Windows and macOS are beta |
 | [0004](0004-ios-shell-and-core-package.md) | SwiftUI shell, UIKit canvas, UI-free core package |
 | [0005](0005-pencil-capabilities.md) | Tilt and hover in scope; pressure is capability-gated |
+| [0006](0006-linux-uinput-tablet.md) | Linux `uinput` absolute tablet layout and event policy |
 
 Decisions are changed by adding a new ADR that supersedes the old one, not by
 rewriting history.

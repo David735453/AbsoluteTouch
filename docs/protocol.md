@@ -76,6 +76,10 @@ The reference hardware, an iPad Air (M4) with Apple Pencil (USB-C), advertises
 `CAP_TILT | CAP_HOVER` but not `CAP_PRESSURE` and not `CAP_TWIST`. The desktop
 uses a configurable default pressure when `CAP_PRESSURE` is absent.
 
+`HELLO_ACK` advertises what the host backend can consume. The Linux `uinput`
+backend reports `CAP_PRESSURE | CAP_TILT | CAP_HOVER`; `CAP_TWIST` stays off
+until twist is implemented.
+
 ## Sample semantics
 
 ### Position

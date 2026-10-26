@@ -225,9 +225,13 @@ fn apply_live_actions(
 }
 
 fn print_sample(sample: &MappedSample) {
+    let tilt = sample.tilt.map_or_else(
+        || "none".to_owned(),
+        |tilt| format!("{:+},{:+}", tilt.x, tilt.y),
+    );
     println!(
-        "{:5} {:5} pressure={:5} contact={} hover={}",
-        sample.x, sample.y, sample.pressure, sample.contact, sample.hover
+        "{:5} {:5} pressure={:5} tilt={} contact={} hover={}",
+        sample.x, sample.y, sample.pressure, tilt, sample.contact, sample.hover
     );
 }
 

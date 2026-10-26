@@ -42,3 +42,6 @@ cast_possible_truncation = "allow"
 cast_sign_loss = "allow"
 cast_possible_wrap = "allow"
 doc_markdown = "allow"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+evdev = "0.13.2"

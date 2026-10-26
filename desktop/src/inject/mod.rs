@@ -8,6 +8,7 @@ use thiserror::Error;
 
 use crate::mapping::MappedSample;
 
+#[cfg(target_os = "linux")]
 pub mod linux;
 pub mod macos;
 pub mod mock;
@@ -46,35 +47,66 @@ pub trait Injector: std::fmt::Debug {
 
 /// Select an injection backend by name.
 ///
-/// `auto` picks the native backend when one exists. Until the platform
-/// backends land, `auto` only succeeds with `dry_run`, where the mock backend
-/// is a safe stand-in.
+/// Names are validated before `dry_run` is considered, so a typo is reported
+/// even when nothing would be injected. With `dry_run`, every valid name maps
+/// to the mock backend. `auto` selects the native backend: `uinput` on Linux.
 ///
 /// # Errors
 ///
-/// Returns [`InjectError::Unavailable`] for unknown or unimplemented backends.
+/// Returns [`InjectError::Unavailable`] for unknown, unsupported, or
+/// not-yet-implemented backends, and when the native device cannot be opened.
 pub fn backend(name: &str, dry_run: bool) -> Result<Box<dyn Injector>, InjectError> {
+    if !matches!(
+        name,
+        "auto" | "mock" | "uinput" | "linux" | "windows" | "macos"
+    ) {
+        return Err(InjectError::Unavailable(format!(
+            "unknown backend {name:?}; expected auto, mock, uinput, windows, or macos"
+        )));
+    }
+
+    if dry_run {
+        return Ok(Box::new(mock::MockInjector::default()));
+    }
+
     match name {
         "mock" => Ok(Box::new(mock::MockInjector::default())),
-        "auto" if dry_run => Ok(Box::new(mock::MockInjector::default())),
-        "auto" => Err(InjectError::Unavailable(
-            "no injection backend in this build; run with --dry-run or --backend mock \
-             (Linux uinput arrives in M2)"
-                .to_owned(),
-        )),
-        "uinput" | "linux" => Err(InjectError::Unavailable(
-            "the Linux uinput backend arrives in M2".to_owned(),
-        )),
+        "auto" => native_backend(),
+        "uinput" | "linux" => uinput_backend(),
         "windows" => Err(InjectError::Unavailable(
-            "the Windows backend arrives in M5".to_owned(),
+            "the Windows backend arrives in M5; use --dry-run on this platform".to_owned(),
         )),
         "macos" => Err(InjectError::Unavailable(
-            "the macOS backend arrives in M6".to_owned(),
+            "the macOS backend arrives in M6; use --dry-run on this platform".to_owned(),
         )),
-        other => Err(InjectError::Unavailable(format!(
-            "unknown backend {other:?}; expected auto, mock, uinput, windows, or macos"
+        _ => Err(InjectError::Unavailable(format!(
+            "unknown backend {name:?}; expected auto, mock, uinput, windows, or macos"
         ))),
     }
+}
+
+#[cfg(target_os = "linux")]
+fn native_backend() -> Result<Box<dyn Injector>, InjectError> {
+    linux::UinputInjector::new().map(|injector| Box::new(injector) as Box<dyn Injector>)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn native_backend() -> Result<Box<dyn Injector>, InjectError> {
+    Err(InjectError::Unavailable(
+        "no injection backend for this platform in this build; use --dry-run".to_owned(),
+    ))
+}
+
+#[cfg(target_os = "linux")]
+fn uinput_backend() -> Result<Box<dyn Injector>, InjectError> {
+    linux::UinputInjector::new().map(|injector| Box::new(injector) as Box<dyn Injector>)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn uinput_backend() -> Result<Box<dyn Injector>, InjectError> {
+    Err(InjectError::Unavailable(
+        "the uinput backend is only available on Linux".to_owned(),
+    ))
 }
 
 #[cfg(test)]
@@ -87,18 +119,20 @@ mod tests {
     }
 
     #[test]
-    fn auto_backend_needs_dry_run_until_m2() {
-        assert!(matches!(
-            backend("auto", false),
-            Err(InjectError::Unavailable(_))
-        ));
-        assert!(backend("auto", true).is_ok());
+    fn dry_run_mocks_every_valid_backend() {
+        for name in ["auto", "mock", "uinput", "linux", "windows", "macos"] {
+            assert!(backend(name, true).is_ok(), "{name}");
+        }
     }
 
     #[test]
-    fn unknown_backend_is_reported() {
+    fn unknown_backend_is_reported_even_in_a_dry_run() {
         assert!(matches!(
             backend("nonsense", true),
+            Err(InjectError::Unavailable(_))
+        ));
+        assert!(matches!(
+            backend("", true),
             Err(InjectError::Unavailable(_))
         ));
     }

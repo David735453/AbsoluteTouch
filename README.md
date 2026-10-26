@@ -4,10 +4,10 @@ AbsoluteTouch turns an iPad and Apple Pencil into an absolute graphics tablet fo
 a desktop computer. It streams Pencil position, contact, tilt, hover, and eraser
 state over Wi-Fi UDP or USB, then injects it as an absolute device.
 
-The project is in early development. **M1** adds the desktop Wi-Fi session,
-configuration, coordinate mapping, trace recording/replay, and a mock injector.
-The iPad app that sends input arrives in M3, and OS injection starts with Linux
-`uinput` in M2.
+The project is in early development. **M2** adds the Linux `uinput` absolute
+tablet, so on Linux the desktop can inject real input. The iPad app that sends
+input arrives in M3; until then, use `--dry-run`, recorded traces, or the mock
+backend.
 
 ## Status
 
@@ -19,7 +19,7 @@ The iPad app that sends input arrives in M3, and OS injection starts with Linux
 | iOS app                   | Placeholder shell              |
 | Wi-Fi sender on the iPad  | Planned (M3)                   |
 | USB streaming             | Planned (M4)                   |
-| Linux `uinput` tablet     | Planned (M2)                   |
+| Linux `uinput` tablet     | Implemented and tested (M2)    |
 | Windows / macOS injection | Planned (M5/M6)                |
 | TestFlight / releases     | Workflows ready (manual)       |
 
@@ -36,7 +36,7 @@ later; the host substitutes a configurable level when pressure is unavailable.
 - Swift 6.4+ for the core package
 - Ruby 3.4+ for the Fastfile syntax check and the iOS release lane
 - macOS with Xcode 27 and XcodeGen for iOS builds (CI only in this repository)
-- Linux: `/dev/uinput` access for the tablet backend
+- Linux: write access to `/dev/uinput` for the tablet backend
 
 ## Quick start
 
@@ -50,11 +50,13 @@ make hooks         # enable the tracked pre-commit hook
 make doctor        # CLI environment report
 ```
 
-Run a session without OS injection yet:
+Run a session:
 
 ```sh
 cd desktop
 cargo run -- token --reset                       # create a pairing token
+cargo run -- run                                 # Linux: inject through uinput
+cargo run -- run --dry-run                       # decode without injecting
 cargo run -- run --backend mock --record demo.atrace
 cargo run -- replay demo.atrace --dry-run
 ```
