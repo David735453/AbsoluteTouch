@@ -1,0 +1,103 @@
+#!/bin/sh
+# Fast checks for staged files only. CI and `make check` run the full suite.
+#
+# Install with `make hooks`. This hook never rewrites files: it reports what is
+# wrong and the make target that fixes it.
+
+set -u
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$staged" ] && exit 0
+
+failed=0
+
+ok() { printf 'ok    %s\n' "$*"; }
+skip() { printf 'skip  %s\n' "$*"; }
+fail() { printf 'fail  %s\n' "$*"; failed=1; }
+detail() { printf '%s\n' "$*" | sed 's/^/      /'; }
+
+changed() { printf '%s\n' "$staged" | grep -qE "$1"; }
+
+check_rust() {
+    changed '^desktop/.*\.rs$|^desktop/Cargo\.toml$' || return 0
+    if out=$(cd desktop && cargo fmt --all -- --check 2>&1); then
+        ok "rustfmt"
+    else
+        fail "rustfmt (run: make fmt)"
+        detail "$out" | head -20
+    fi
+}
+
+check_swift_format() {
+    changed '^ios/.*\.swift$' || return 0
+    if ! command -v swift >/dev/null 2>&1; then
+        skip "swift format (no swift on PATH)"
+        return 0
+    fi
+    if out=$(swift format lint --strict --recursive ios/AbsoluteTouchCore ios/App 2>&1); then
+        ok "swift format"
+    else
+        fail "swift format (run: make fmt-swift)"
+        detail "$out" | head -20
+    fi
+}
+
+check_swiftlint() {
+    changed '^ios/.*\.swift$' || return 0
+    if ! command -v swiftlint >/dev/null 2>&1; then
+        skip "swiftlint (not installed)"
+        return 0
+    fi
+    if ! swiftlint version >/dev/null 2>&1; then
+        skip "swiftlint (cannot start: check the Swift runtime library path)"
+        return 0
+    fi
+    if out=$(swiftlint lint --quiet --strict 2>&1); then
+        ok "swiftlint"
+    else
+        fail "swiftlint"
+        detail "$out" | head -20
+    fi
+}
+
+check_vectors() {
+    changed '^protocol/|^tools/gen_vectors\.py$' || return 0
+    if out=$(python3 tools/gen_vectors.py --check 2>&1); then
+        ok "golden vectors"
+    else
+        fail "golden vectors (run: make vectors)"
+        detail "$out" | head -20
+    fi
+}
+
+check_ruby() {
+    changed '^ios/Gemfile$|^ios/fastlane/Fastfile$' || return 0
+    if ! command -v ruby >/dev/null 2>&1; then
+        skip "ruby syntax (no ruby on PATH)"
+        return 0
+    fi
+    for file in ios/Gemfile ios/fastlane/Fastfile; do
+        [ -f "$file" ] || continue
+        if out=$(ruby -c "$file" 2>&1); then
+            ok "ruby -c $file"
+        else
+            fail "ruby -c $file"
+            detail "$out"
+        fi
+    done
+}
+
+check_rust
+check_swift_format
+check_swiftlint
+check_vectors
+check_ruby
+
+if [ "$failed" -ne 0 ]; then
+    printf '\nCommit blocked: fix the checks above, re-stage, and commit again.\n'
+    exit 1
+fi
+
+exit 0

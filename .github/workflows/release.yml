@@ -1,0 +1,225 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without the v prefix, for example 0.1.0"
+        required: true
+        type: string
+      linux:
+        description: "Build Linux x86_64"
+        type: boolean
+        default: true
+      linux_arm:
+        description: "Build Linux ARM64"
+        type: boolean
+        default: false
+      windows:
+        description: "Build Windows x64 (beta)"
+        type: boolean
+        default: false
+      windows_arm:
+        description: "Build Windows ARM64 (beta)"
+        type: boolean
+        default: false
+      macos:
+        description: "Build macOS ARM64 (beta)"
+        type: boolean
+        default: false
+      draft:
+        description: "Create the GitHub release as a draft"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate version
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Check version format
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
+            echo "::error::version must look like 0.1.0"
+            exit 1
+          fi
+
+  linux-x86_64:
+    name: Linux x86_64
+    needs: validate
+    if: ${{ inputs.linux }}
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+      - name: Build
+        working-directory: desktop
+        run: cargo build --release --locked
+      - name: Package
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          tar -czf "dist/absolutetouch-${VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            -C desktop/target/release absolutetouch
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x86_64
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  linux-aarch64:
+    name: Linux ARM64
+    needs: validate
+    if: ${{ inputs.linux_arm }}
+    runs-on: ubuntu-26.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+      - name: Build
+        working-directory: desktop
+        run: cargo build --release --locked
+      - name: Package
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          tar -czf "dist/absolutetouch-${VERSION}-aarch64-unknown-linux-gnu.tar.gz" \
+            -C desktop/target/release absolutetouch
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-aarch64
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  windows-x86_64:
+    name: Windows x64
+    needs: validate
+    if: ${{ inputs.windows }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+      - name: Build
+        working-directory: desktop
+        run: cargo build --release --locked
+      - name: Package
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive `
+            -Path desktop/target/release/absolutetouch.exe `
+            -DestinationPath "dist/absolutetouch-$($env:VERSION)-x86_64-pc-windows-msvc.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64
+          path: dist/*.zip
+          if-no-files-found: error
+
+  windows-aarch64:
+    name: Windows ARM64
+    needs: validate
+    if: ${{ inputs.windows_arm }}
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+      - name: Build
+        working-directory: desktop
+        run: cargo build --release --locked
+      - name: Package
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive `
+            -Path desktop/target/release/absolutetouch.exe `
+            -DestinationPath "dist/absolutetouch-$($env:VERSION)-aarch64-pc-windows-msvc.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-aarch64
+          path: dist/*.zip
+          if-no-files-found: error
+
+  macos-aarch64:
+    name: macOS ARM64
+    needs: validate
+    if: ${{ inputs.macos }}
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+      - name: Build
+        working-directory: desktop
+        run: cargo build --release --locked
+      - name: Package
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          tar -czf "dist/absolutetouch-${VERSION}-aarch64-apple-darwin.tar.gz" \
+            -C desktop/target/release absolutetouch
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-aarch64
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    needs:
+      - validate
+      - linux-x86_64
+      - linux-aarch64
+      - windows-x86_64
+      - windows-aarch64
+      - macos-aarch64
+    if: ${{ always() && !failure() && !cancelled() && (inputs.linux || inputs.linux_arm || inputs.windows || inputs.windows_arm || inputs.macos) }}
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: List release files
+        run: ls -l dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          name: AbsoluteTouch v${{ inputs.version }}
+          draft: ${{ inputs.draft }}
+          generate_release_notes: true
+          files: dist/*

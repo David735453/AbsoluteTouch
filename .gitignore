@@ -1,0 +1,35 @@
+# Rust
+/desktop/target/
+**/*.rs.bk
+
+# Swift / Xcode
+/ios/.build/
+/ios/DerivedData/
+/ios/build/
+/ios/*.xcodeproj/
+/ios/*.xcworkspace/
+/ios/.bundle/
+/ios/vendor/bundle/
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xcarchive
+*.ipa
+.swiftpm/
+.build/
+
+# CI build output
+/dist/
+
+# Secrets and local configuration
+*.p8
+*.p12
+*.mobileprovision
+.env
+.env.*
+/desktop/*.local.toml
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

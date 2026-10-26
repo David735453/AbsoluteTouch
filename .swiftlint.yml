@@ -1,0 +1,17 @@
+disabled_rules:
+  - trailing_comma
+
+excluded:
+  - ios/.build
+  - ios/AbsoluteTouchCore/.build
+  - ios/DerivedData
+  - ios/build
+
+identifier_name:
+  excluded:
+    - x
+    - y
+
+function_body_length:
+  warning: 80
+  error: 120

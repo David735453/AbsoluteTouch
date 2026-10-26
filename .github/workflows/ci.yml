@@ -1,0 +1,254 @@
+name: CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      linux:
+        description: "Linux x86_64: Rust checks and Swift core tests"
+        type: boolean
+        default: true
+      linux_arm:
+        description: "Linux ARM64: Rust checks"
+        type: boolean
+        default: false
+      windows:
+        description: "Windows x64: Rust checks (beta)"
+        type: boolean
+        default: false
+      windows_arm:
+        description: "Windows ARM64: Rust checks (beta)"
+        type: boolean
+        default: false
+      macos:
+        description: "macOS: Swift core tests and iOS app build"
+        type: boolean
+        default: true
+      lint:
+        description: "Repository-wide formatting, lint, and vector checks"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  lint:
+    name: Format and lint
+    if: ${{ inputs.lint }}
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Golden vectors
+        run: python3 tools/gen_vectors.py --check
+      - name: Rust formatting
+        working-directory: desktop
+        run: cargo fmt --all -- --check
+      - name: Swift formatting
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -v "$PWD:/work" \
+            -w /work \
+            swift:6.4.1 \
+            swift format lint --strict --recursive ios/AbsoluteTouchCore ios/App
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+      - name: Ruby and config syntax
+        run: |
+          set -euo pipefail
+          ruby -c ios/Gemfile
+          ruby -c ios/fastlane/Fastfile
+          ruby -ryaml -e 'ARGV.each { |file| YAML.load_file(file) }' \
+            .github/workflows/*.yml ios/project.yml
+          ruby -rjson -e 'JSON.parse(File.read("protocol/vectors.json"))'
+          python3 -c 'import plistlib, sys; plistlib.load(open(sys.argv[1], "rb"))' ios/App/Info.plist
+          python3 -c 'import plistlib, sys; plistlib.load(open(sys.argv[1], "rb"))' ios/App/PrivacyInfo.xcprivacy
+
+  linux:
+    name: Linux x86_64
+    if: ${{ inputs.linux }}
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+      - name: Check golden vectors
+        run: python3 tools/gen_vectors.py --check
+      - name: Rust formatting
+        working-directory: desktop
+        run: cargo fmt --all -- --check
+      - name: Rust clippy
+        working-directory: desktop
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Rust tests
+        working-directory: desktop
+        run: cargo test --all-targets
+      - name: Doctor
+        working-directory: desktop
+        run: cargo run --quiet -- doctor
+      - name: Swift version
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -v "$PWD:/work" \
+            -w /work \
+            swift:6.4.1 \
+            swift --version
+      - name: Swift formatting
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -v "$PWD:/work" \
+            -w /work \
+            swift:6.4.1 \
+            swift format lint --strict --recursive ios/AbsoluteTouchCore ios/App
+      - name: Swift core tests
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -v "$PWD:/work" \
+            -w /work \
+            swift:6.4.1 \
+            swift test --package-path ios/AbsoluteTouchCore
+
+  linux-arm:
+    name: Linux ARM64
+    if: ${{ inputs.linux_arm }}
+    runs-on: ubuntu-26.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+      - name: Check golden vectors
+        run: python3 tools/gen_vectors.py --check
+      - name: Rust formatting
+        working-directory: desktop
+        run: cargo fmt --all -- --check
+      - name: Rust clippy
+        working-directory: desktop
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Rust tests
+        working-directory: desktop
+        run: cargo test --all-targets
+
+  windows:
+    name: Windows x64
+    if: ${{ inputs.windows }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+      - name: Rust formatting
+        working-directory: desktop
+        run: cargo fmt --all -- --check
+      - name: Rust clippy
+        working-directory: desktop
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Rust tests
+        working-directory: desktop
+        run: cargo test --all-targets
+
+  windows-arm:
+    name: Windows ARM64
+    if: ${{ inputs.windows_arm }}
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+      - name: Rust formatting
+        working-directory: desktop
+        run: cargo fmt --all -- --check
+      - name: Rust clippy
+        working-directory: desktop
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Rust tests
+        working-directory: desktop
+        run: cargo test --all-targets
+
+  macos:
+    name: macOS and iOS
+    if: ${{ inputs.macos }}
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 27
+        run: |
+          set -euo pipefail
+          for candidate in /Applications/Xcode_27*.app; do
+            if [ -d "$candidate" ]; then
+              sudo xcode-select -s "$candidate"
+              break
+            fi
+          done
+          xcodebuild -version
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+      - name: Rust tests
+        working-directory: desktop
+        run: cargo test --all-targets
+      - name: Swift core tests
+        run: swift test --package-path ios/AbsoluteTouchCore
+      - name: Swift formatting
+        run: swift format lint --strict --recursive ios/AbsoluteTouchCore ios/App
+      - name: Install SwiftLint
+        run: brew install swiftlint
+      - name: SwiftLint
+        run: swiftlint lint --quiet --strict
+      - name: Ruby syntax
+        run: |
+          set -euo pipefail
+          ruby -c ios/Gemfile
+          ruby -c ios/fastlane/Fastfile
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate --spec ios/project.yml
+      - name: Build iOS app
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project ios/AbsoluteTouch.xcodeproj \
+            -scheme AbsoluteTouch \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath ios/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            build
