@@ -1,4 +1,5 @@
 import AbsoluteTouchCore
+import SwiftUI
 import UIKit
 
 /// Receives pointer samples from a ``CanvasView``.

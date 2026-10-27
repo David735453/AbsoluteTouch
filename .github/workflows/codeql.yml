@@ -1,20 +1,23 @@
-name: CodeQL Swift
+name: CodeQL
 
-# Default setup covers actions, python, ruby, and rust. Swift needs advanced
-# setup: the package declares a 6.4 tools-version, so the extractor must trace a
-# build made by a matching toolchain, and autobuild cannot select one. This job
-# installs Swift 6.4.1 and builds the UI-free core, the only Swift target that
-# compiles on Linux. The UIKit app shell needs Xcode and is covered by the macOS
-# job in `ci.yml`.
+# Advanced setup for every language, because GitHub rejects uploads from an
+# advanced configuration while default setup is enabled, and Swift cannot run
+# under default setup: the core declares `swift-tools-version: 6.4`, so the
+# extractor must trace a build made by a matching toolchain, and autobuild
+# cannot select one.
+#
+# Revert to default setup with:
+#   gh api --method PATCH repos/David735453/AbsoluteTouch/code-scanning/default-setup \
+#     -f state=configured -f query_suite=default \
+#     -f 'languages[]=actions' -f 'languages[]=python' \
+#     -f 'languages[]=ruby' -f 'languages[]=rust'
+# and delete this file; the two cannot run together.
 
 on:
   push:
     branches: [main]
-    paths:
-      - "ios/AbsoluteTouchCore/**"
-      - ".github/workflows/codeql.yml"
   schedule:
-    # Weekly, a few hours apart from the default-setup schedule.
+    # Weekly, a few hours apart from the other nightly work.
     - cron: "43 4 * * 1"
   workflow_dispatch:
 
@@ -22,28 +25,58 @@ permissions:
   contents: read
 
 concurrency:
-  group: codeql-swift-${{ github.ref }}
+  group: codeql-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   analyze:
-    name: Analyze (swift)
-    runs-on: xcode-27
+    name: Analyze (${{ matrix.language }})
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     permissions:
       contents: read
       security-events: write
+    strategy:
+      # One failing language must not hide the others.
+      fail-fast: false
+      matrix:
+        include:
+          # Interpreted or declarative: CodeQL needs no build.
+          - language: actions
+            build-mode: none
+            runner: ubuntu-26.04
+          - language: python
+            build-mode: none
+            runner: ubuntu-26.04
+          - language: ruby
+            build-mode: none
+            runner: ubuntu-26.04
+          # Rust autobuild runs `cargo build` against desktop/Cargo.toml.
+          - language: rust
+            build-mode: autobuild
+            runner: ubuntu-26.04
+          # Only the UI-free core compiles without the generated Xcode project,
+          # so that is all this job analyzes. The UIKit shell is compiled by the
+          # `macos` job in `ci.yml`.
+          - language: swift
+            build-mode: manual
+            runner: xcode-27
     steps:
       - uses: actions/checkout@v7
       - uses: SwiftyLab/setup-swift@latest
+        if: matrix.language == 'swift'
         with:
           swift-version: "6.4.1"
       - uses: github/codeql-action/init@v4
         with:
-          languages: swift
-          build-mode: manual
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
       - name: Build the Swift core
-        run: swift build --package-path ios/AbsoluteTouchCore
+        if: matrix.language == 'swift'
+        # SwiftPM's sandbox helper cannot be spawned under the CodeQL tracer on
+        # the arm64 macOS runner ("Bad CPU type in executable"); the package has
+        # no build plugins, so the sandbox is not load-bearing.
+        run: swift build --package-path ios/AbsoluteTouchCore --disable-sandbox
       - uses: github/codeql-action/analyze@v4
         with:
-          category: "/language:swift"
+          category: "/language:${{ matrix.language }}"

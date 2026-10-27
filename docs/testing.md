@@ -208,18 +208,37 @@ gh workflow run ci.yml -f windows=true -f macos=false
 
 ### `codeql.yml`
 
-CodeQL default setup covers `actions`, `python`, `ruby`, and `rust`. Swift needs
-advanced setup because the package declares `swift-tools-version: 6.4` and the
-extractor must trace a build made by a matching toolchain; default setup's
-autobuild called `swift build` with an older Swift and failed, so it was dropped
-from the default configuration.
+CodeQL uses advanced setup for every language: `actions`, `python`, `ruby`,
+`rust`, and `swift`. Advanced and default setup are mutually exclusive — an
+upload from an advanced workflow is rejected with "CodeQL analyses from advanced
+configurations cannot be processed when the default setup is enabled" — so the
+default configuration is disabled while this workflow exists.
 
-`codeql.yml` analyzes Swift on `ubuntu-24.04` (the extractor's supported LTS),
-installs Swift 6.4.1 with `SwiftyLab/setup-swift@latest`, builds
-`ios/AbsoluteTouchCore`, and uploads results with `github/codeql-action@v4`.
-Only the UI-free core is analyzed; the UIKit app shell needs Xcode and is
-covered by the `macos` job in `ci.yml`. The job needs `security-events: write`
-and nothing else, and it is skipped on pull requests.
+Swift forces the choice. The core declares `swift-tools-version: 6.4`, so the
+extractor must trace a build made by a matching toolchain; default setup's
+autobuild called `swift build` with an older Swift and produced no results.
+
+| Language | Runner | Build |
+| --- | --- | --- |
+| `actions`, `python`, `ruby` | `ubuntu-26.04` | none |
+| `rust` | `ubuntu-26.04` | autobuild (`cargo build` on `desktop/`) |
+| `swift` | `xcode-27` | manual: Swift 6.4.1 via `SwiftyLab/setup-swift@latest`, then `swift build --package-path ios/AbsoluteTouchCore --disable-sandbox` |
+
+Only the UI-free core is analyzed; the UIKit app shell needs the generated Xcode
+project and is covered by the `macos` job in `ci.yml`. `--disable-sandbox` works
+around SwiftPM's sandbox helper failing under the CodeQL tracer on the arm64
+runner; the package has no build plugins, so the sandbox does not matter here.
+The workflow runs on push to `main`, weekly, and on demand — never on pull
+requests — and every job is read-only apart from `security-events: write`.
+
+Reverting to default setup is one API call plus deleting the workflow:
+
+```sh
+gh api --method PATCH repos/David735453/AbsoluteTouch/code-scanning/default-setup \
+  -f state=configured -f query_suite=default \
+  -f 'languages[]=actions' -f 'languages[]=python' \
+  -f 'languages[]=ruby' -f 'languages[]=rust'
+```
 
 ```sh
 gh workflow run codeql.yml
