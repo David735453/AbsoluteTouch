@@ -106,9 +106,12 @@ so the session also reports `input latency`: the age of each injected sample in
 host time, measured above the fastest sample of the session. The absolute offset
 is only accurate to the round-trip asymmetry, which is tens of milliseconds on a
 buffering link, so a raw age would be dominated by clock error; the excess over
-the floor is the delay the user actually feels. The counter is what turns "it
-sometimes lags" into a number, and it is the measurement to quote in a bug
-report.
+the floor is the delay the user actually feels. The offset is therefore taken
+once, at the first heartbeat, and kept for the session: the report needs it to be
+constant rather than accurate, and a per-heartbeat estimate wandered by the
+asymmetry and invented latency that was never on the link. The counter is what
+turns "it sometimes lags" into a number, and it is the measurement to quote in a
+bug report.
 
 ### Recording and replay
 

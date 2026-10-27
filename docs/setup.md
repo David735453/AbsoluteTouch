@@ -286,7 +286,26 @@ game's own frame time.
 The absolute age is not reported because the heartbeat offset is only accurate
 to the round-trip asymmetry, which on a buffering link is tens of milliseconds.
 The fastest sample of the run is the floor, and every other sample is measured
-above it, which is the same number `analyze.py` prints for a recorded trace.
+above it, which is the widest gap between two sample delays in the recorded
+trace.
+
+The offset is measured once, at the first heartbeat, and then frozen for the
+session. Only a constant offset is needed, and re-measuring it every second made
+the reported age wander by the round-trip asymmetry — 64 ms peak to peak on an
+iPhone hotspot, which turned a recorded 76 ms stall into a reported 132 ms.
+
+To check a recording, replay it at real speed and compare the two summaries:
+
+```sh
+absolutetouch run --record session.atrace
+absolutetouch replay session.atrace --speed 1
+```
+
+`--speed 1` keeps the heartbeat timing of the original run, so the replayed
+`input latency` line has to match the recorded one exactly. Any other speed
+suppresses the line, because a scaled replay cannot reproduce clock alignment.
+A `worst` that is larger on replay than on the live run means the offset is
+moving again.
 
 ```text
 input latency: 3800 us last, 41900 us worst above floor

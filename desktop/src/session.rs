@@ -212,7 +212,13 @@ struct Stream {
     last_packet: Instant,
     released: bool,
     seq: SeqWindow,
-    /// Host clock minus device clock, learned from heartbeats.
+    /// Device clock minus host clock, frozen at the first heartbeat.
+    ///
+    /// Sample ages are reported above the fastest sample of the session, so
+    /// only a constant offset is needed: an inaccurate one cancels against the
+    /// floor, but one that moves does not. Re-estimating it every second let
+    /// the round-trip asymmetry shift the age by tens of milliseconds, which
+    /// doubled a 76 ms stall into 132 ms.
     clock_offset_us: Option<i64>,
 }
 
@@ -438,7 +444,9 @@ impl<I: SessionIds> Session<I> {
             // microseconds from an arbitrary origin and wrap at about 71
             // minutes, so compare the difference modulo 2^32 and read it as
             // signed. A stamp slightly ahead of the host clock is a rounding
-            // error in the offset estimate, not negative latency.
+            // error in the offset estimate, not negative latency. The offset
+            // is frozen for the session, so it cannot invent latency by
+            // moving between heartbeats.
             let sample_host_time = packet.device_time_us.wrapping_sub(offset as u32);
             let age = self.host_us(now).wrapping_sub(sample_host_time) as i32;
             self.stats.record_sample_age(age);
@@ -462,7 +470,11 @@ impl<I: SessionIds> Session<I> {
             let offset = i64::from(packet.device_time_us) - i64::from(midpoint);
             self.stats.record_timing(rtt, offset);
             if let Some(stream) = &mut self.stream {
-                stream.clock_offset_us = Some(offset);
+                // Keep the first estimate for the rest of the session. A
+                // later, better-symmetric heartbeat would move the offset,
+                // and the move shows up as input latency even though nothing
+                // arrived late.
+                stream.clock_offset_us.get_or_insert(offset);
             }
         }
 
@@ -1174,7 +1186,7 @@ mod tests {
             &sample(1, 100, 200),
             started + Duration::from_millis(10),
         );
-        assert_eq!(session.stats().last_sample_age_us, None);
+        assert_eq!(session.stats().last_sample_excess_us(), None);
 
         // The device clock runs ten seconds ahead of the host clock. The
         // acknowledgement left the host at 1_990 ms and reached the device at
@@ -1200,28 +1212,87 @@ mod tests {
         let mut early = sample(3, 100, 200);
         early.device_time_us = 12_050_000;
         session.handle(peer(), &early, started + Duration::from_millis(2_056));
-        assert_eq!(session.stats().last_sample_age_us, Some(0));
-        assert_eq!(session.stats().worst_sample_age_us, 0);
+        assert_eq!(session.stats().last_sample_excess_us(), Some(0));
+        assert_eq!(session.stats().worst_sample_excess_us(), 0);
 
         let mut late = sample(4, 100, 200);
         late.device_time_us = 12_100_000;
         session.handle(peer(), &late, started + Duration::from_millis(2_120));
-        assert_eq!(session.stats().last_sample_age_us, Some(14_000));
+        assert_eq!(session.stats().last_sample_excess_us(), Some(14_000));
 
         let mut middling = sample(5, 100, 200);
         middling.device_time_us = 12_150_000;
         session.handle(peer(), &middling, started + Duration::from_millis(2_158));
-        assert_eq!(session.stats().last_sample_age_us, Some(2_000));
-        assert_eq!(session.stats().worst_sample_age_us, 14_000);
+        assert_eq!(session.stats().last_sample_excess_us(), Some(2_000));
+        assert_eq!(session.stats().worst_sample_excess_us(), 14_000);
 
-        // An offset rounding error can put a stamp a little into the future.
-        // That lowers the floor instead of reporting negative latency or a
-        // wrapped 71-minute age.
+        // A sample that arrives faster than every earlier one lowers the floor
+        // for the whole run instead of reporting negative latency or a wrapped
+        // 71-minute age, so the earlier 22_500 us sample ends up 19_000 us
+        // above the new floor.
         let mut ahead = sample(6, 100, 200);
         ahead.device_time_us = 12_200_000;
         session.handle(peer(), &ahead, started + Duration::from_millis(2_201));
-        assert_eq!(session.stats().last_sample_age_us, Some(0));
-        assert_eq!(session.stats().worst_sample_age_us, 14_000);
+        assert_eq!(session.stats().last_sample_excess_us(), Some(0));
+        assert_eq!(session.stats().worst_sample_excess_us(), 19_000);
+    }
+
+    #[test]
+    fn a_later_heartbeat_does_not_move_the_sample_age() {
+        let started = Instant::now();
+        let mut session = session(started);
+        handshake(&mut session, started);
+        session.take_actions();
+
+        // First heartbeat: a 40 ms turnaround leaves the midpoint 20 ms from
+        // the true crossing, so the offset is 11_010_000 us.
+        let mut first = Packet::new(PacketType::Heartbeat);
+        first.seq = 2;
+        first.session_id = 7;
+        first.device_time_us = 12_000_000;
+        let (x, y) = words(11_980_000);
+        first.x = x;
+        first.y = y;
+        let echoed_host: u32 = 960_000;
+        first.pressure = (echoed_host & 0xFFFF) as u16;
+        first.altitude = (echoed_host >> 16) as u16;
+        session.handle(peer(), &first, started + Duration::from_millis(1_000));
+        assert_eq!(session.stats().last_offset_us, Some(11_010_000));
+
+        // A sample on time, then one 60 ms late.
+        let mut on_time = sample(3, 100, 200);
+        on_time.device_time_us = 12_050_000;
+        session.handle(peer(), &on_time, started + Duration::from_millis(1_050));
+        assert_eq!(session.stats().worst_sample_excess_us(), 0);
+
+        let mut late = sample(4, 100, 200);
+        late.device_time_us = 12_110_000;
+        session.handle(peer(), &late, started + Duration::from_millis(1_170));
+        assert_eq!(session.stats().last_sample_excess_us(), Some(60_000));
+
+        // The next heartbeat has a 4 ms turnaround, which would move the
+        // offset down by 9 ms and make the stall look 9 ms worse.
+        let mut second = Packet::new(PacketType::Heartbeat);
+        second.seq = 3;
+        second.session_id = 7;
+        second.device_time_us = 13_000_000;
+        let (x, y) = words(12_998_000);
+        second.x = x;
+        second.y = y;
+        let echoed_host: u32 = 1_996_000;
+        second.pressure = (echoed_host & 0xFFFF) as u16;
+        second.altitude = (echoed_host >> 16) as u16;
+        session.handle(peer(), &second, started + Duration::from_millis(2_000));
+        assert_eq!(session.stats().last_rtt_us, Some(2_000));
+        assert_eq!(session.stats().last_offset_us, Some(11_001_000));
+
+        // The reported timing follows the newest heartbeat; the sample age
+        // keeps the offset it started with, so the same delay is unchanged.
+        let mut after = sample(5, 100, 200);
+        after.device_time_us = 13_000_000;
+        session.handle(peer(), &after, started + Duration::from_micros(2_000_050));
+        assert_eq!(session.stats().last_sample_excess_us(), Some(50));
+        assert_eq!(session.stats().worst_sample_excess_us(), 60_000);
     }
 
     #[test]

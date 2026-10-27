@@ -411,6 +411,49 @@ trace format is internal and versioned (`ATTR`, version 1, 8-byte header,
 48-byte records); it is not the wire protocol. `--record` keeps rejected
 packets too, so a trace can reproduce misbehaving clients.
 
+## Measured latency baseline
+
+These numbers were taken on the reference iPad Air (M4) with an Apple Pencil
+(USB-C), streaming over an iPhone hotspot to a Linux desktop on the same
+`uinput` backend. Use them as the Wi-Fi number to beat, not as a target: they
+are what the link does today.
+
+| Run                       | Contact samples | Contact time | Contact gaps > 33 ms | Worst excess |
+| ------------------------- | --------------: | -----------: | -------------------: | -----------: |
+| 8 short strokes, 1 s each |        ~1000 ea |      ~1 s ea |  4 of 8 runs, one ea |     72–79 ms |
+| 60 s mixed-speed stroke   |           11266 |       46.8 s |                   46 |      75.8 ms |
+
+The long run is one stall per second of contact (46 in 46.8 s). Its contact
+excess percentiles were median 3.7 ms, p90 5.3 ms, p99 62.1 ms, max 75.8 ms,
+with 630 of 11266 samples (5.6 %) more than 20 ms above the floor. On a 60 Hz
+display a 16.7 ms frame is the budget, so the p99 and max cases are four to five
+frames behind — enough to drop an osu! hit.
+
+Three explanations were ruled out by measurement:
+
+- **Sender uptime.** Bad and clean runs interleave across 19.6–127.4 s of
+  `t_device_us` with no trend, so the app does not degrade as it runs.
+- **Pencil speed.** A deliberately mixed-speed run shows the same stall rate.
+  Short strokes looked cleaner only because they are less likely to contain a
+  once-per-second stall; path length was near-constant (0.63–0.99 tablet
+  diagonals), so the earlier correlation was stroke duration, i.e. exposure.
+- **The host.** A loopback sender on the same machine, same protocol, same
+  recorder, produced 2872 contact samples over 12 s with a maximum arrival gap
+  of 17.4 ms and a worst excess of 873 µs. The receive loop, session, mapping,
+  injector, and recorder add nothing measurable.
+
+That leaves the radio path: the iPad's Wi-Fi power saving, the hotspot's
+buffering, or both. Power saving is worth checking first, because it changes the
+shape of the problem — with it enabled, 33.5 % of contact samples arrived 20–319
+ms late, while disabling it left mostly clean delivery with the recurring ~70 ms
+stall above. Neither is reachable from `iw` on the hotspot side, which is the
+argument for M4 (USB) rather than more Wi-Fi tuning.
+
+When adding a row here, record the transport, access point, iPad, Pencil, and
+the `run --record` command that produced it. Validate the summary against
+`replay --speed 1` first: the two `input latency` lines have to agree, or the
+clock offset is moving and the number means nothing.
+
 ## Manual hardware checklist
 
 Run this before calling a platform or milestone supported. Attach the OS,
@@ -426,7 +469,8 @@ backend, transport, iPad model, and Pencil model to the result.
       type under test (Wayland or X11).
 - [ ] `input latency` in the summary stays under one frame (about 17 ms) above
       the floor for a whole stroke, and the `worst` value is recorded with the
-      machine, OS, and access point in the result.
+      machine, OS, and access point in the result. Wi-Fi does not pass this
+      today: see [Measured latency baseline](#measured-latency-baseline).
 - [ ] `HELLO` / `HELLO_ACK` completes within one second.
 - [ ] A wrong token is rejected and logged.
 - [ ] A second iPad with the wrong token or source IP cannot take over.

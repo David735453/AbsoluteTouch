@@ -506,7 +506,7 @@ mod tests {
 
         let report = runner.join().expect("join");
         assert!(report.stats.last_rtt_us.is_some());
-        assert!(report.stats.last_sample_age_us.is_some());
+        assert!(report.stats.last_sample_excess_us().is_some());
 
         let mut injector = MockInjector::default();
         // Replay at real speed: compressing time would invalidate the clock
@@ -514,7 +514,7 @@ mod tests {
         let replayed = replay(&path, 1.0, false, &config, &mut injector).expect("replay");
 
         assert_eq!(replayed.stats.last_rtt_us, report.stats.last_rtt_us);
-        assert!(replayed.stats.last_sample_age_us.is_some());
+        assert!(replayed.stats.last_sample_excess_us().is_some());
     }
 
     #[test]

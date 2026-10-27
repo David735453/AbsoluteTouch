@@ -49,12 +49,20 @@ Two code paths turned a transient network stall into lasting lag:
   clock with the device timestamp it echoes in `x`/`y`, from the host-side
   turnaround.
 - Add `input latency` to the session summary: the age of each injected sample
-  on the host clock, using the heartbeat clock offset, reported above the
-  fastest sample seen in the session. The offset is only accurate to the
-  round-trip asymmetry, so an absolute age carries a bias that is constant for
-  the session; the excess over the floor removes it and matches what
-  `analyze.py` computes for a recorded trace. Samples more than one second from
-  the floor are ignored, because they mean a clock jump rather than a slow link.
+  on the host clock, reported above the fastest sample seen in the session. The
+  heartbeat offset is only accurate to the round-trip asymmetry, so an absolute
+  age carries a bias that is constant for the session; the excess over the floor
+  removes it and equals the widest gap between two sample delays in the recorded
+  trace. Samples more than one second from the floor are ignored, because they
+  mean a clock jump rather than a slow link.
+- Freeze the clock offset at the first heartbeat instead of re-estimating it
+  every second. The floor-only report needs a _constant_ offset, not an accurate
+  one, and re-estimating let the round-trip asymmetry move the age within a
+  64 ms band on a hotspot, which doubled a 76 ms stall into 132 ms.
+- Keep the fastest and slowest sample ages raw and subtract them at display
+  time, rather than accumulating an excess as samples arrive. A running floor
+  cannot lower a worst value that was already recorded, so a fast sample late in
+  the run used to leave the report 0.6 ms optimistic on a 60 s trace.
 - Reject impossible heartbeat echoes: a negative turnaround, a turnaround over
   ten seconds, or a sender wait longer than the turnaround. After a desktop
   restart the sender still holds timestamps from the previous process, whose
