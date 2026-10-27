@@ -304,19 +304,19 @@ impl Config {
                 "mapping.target must fit inside 0..=65535".to_owned(),
             ));
         }
-        if let Some(aspect) = self.mapping.source_aspect {
-            if !aspect.is_finite() || aspect <= 0.0 {
-                return Err(ConfigError::Invalid(
-                    "mapping.source_aspect must be a positive number".to_owned(),
-                ));
-            }
+        if let Some(aspect) = self.mapping.source_aspect
+            && (!aspect.is_finite() || aspect <= 0.0)
+        {
+            return Err(ConfigError::Invalid(
+                "mapping.source_aspect must be a positive number".to_owned(),
+            ));
         }
-        if let Some(aspect) = self.mapping.target_aspect {
-            if !aspect.is_finite() || aspect <= 0.0 {
-                return Err(ConfigError::Invalid(
-                    "mapping.target_aspect must be a positive number".to_owned(),
-                ));
-            }
+        if let Some(aspect) = self.mapping.target_aspect
+            && (!aspect.is_finite() || aspect <= 0.0)
+        {
+            return Err(ConfigError::Invalid(
+                "mapping.target_aspect must be a positive number".to_owned(),
+            ));
         }
         Ok(self)
     }
@@ -333,13 +333,13 @@ impl Config {
 
     /// Write the configuration to `path`, creating parent directories.
     pub fn save(&self, path: &Path) -> Result<(), ConfigError> {
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent).map_err(|source| ConfigError::Write {
-                    path: path.to_path_buf(),
-                    source,
-                })?;
-            }
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent).map_err(|source| ConfigError::Write {
+                path: path.to_path_buf(),
+                source,
+            })?;
         }
         let text = self.to_toml()?;
         std::fs::write(path, text).map_err(|source| ConfigError::Write {
@@ -403,7 +403,8 @@ pub fn decode_hex16(text: &str) -> Result<[u8; 16], ConfigError> {
     }
 
     let mut token = [0_u8; 16];
-    for (index, pair) in text.as_bytes().chunks_exact(2).enumerate() {
+    let bytes = text.as_bytes();
+    for (index, pair) in bytes.as_chunks::<2>().0.iter().enumerate() {
         token[index] = (hex_digit(pair[0]).ok_or_else(|| bad_hex(text))? << 4)
             | hex_digit(pair[1]).ok_or_else(|| bad_hex(text))?;
     }

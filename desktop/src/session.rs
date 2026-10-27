@@ -289,10 +289,10 @@ impl<I: SessionIds> Session<I> {
     pub fn handle(&mut self, peer: SocketAddr, packet: &Packet, now: Instant) {
         self.stats.record_packet();
 
-        if let Some(stream) = &self.stream {
-            if now.saturating_duration_since(stream.last_packet) >= self.config.session_timeout {
-                self.expire();
-            }
+        if let Some(stream) = &self.stream
+            && now.saturating_duration_since(stream.last_packet) >= self.config.session_timeout
+        {
+            self.expire();
         }
 
         match packet.packet_type {
@@ -343,11 +343,11 @@ impl<I: SessionIds> Session<I> {
     fn on_hello(&mut self, peer: SocketAddr, packet: &Packet, now: Instant) {
         let token = packet.token();
 
-        if let Some(expected) = self.config.token {
-            if token != expected {
-                self.reject(peer, RejectReason::BadToken);
-                return;
-            }
+        if let Some(expected) = self.config.token
+            && token != expected
+        {
+            self.reject(peer, RejectReason::BadToken);
+            return;
         }
 
         if let Some((existing_peer, existing_token, existing_id)) = self

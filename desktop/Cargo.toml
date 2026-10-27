@@ -1,8 +1,8 @@
 [package]
 name = "absolutetouch"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.99"
 description = "Absolute tablet input bridge for iPad"
 license = "MIT"
 repository = "https://github.com/David735453/AbsoluteTouch"

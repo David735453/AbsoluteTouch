@@ -7,14 +7,14 @@ it still needs validation on a real iPad and Pencil.
 
 ## Structure
 
-| Path | Contents |
-| --- | --- |
-| `App/ContentView.swift` | Pairing form: address, port, token, start button |
-| `App/StreamingView.swift` | Full-screen canvas, session HUD, failure overlay |
-| `App/CanvasView.swift` | UIKit touch, hover, and coalesced-sample capture |
-| `App/StreamingViewModel.swift` | Observable session owner and statistics polling |
-| `AbsoluteTouchCore/Sources/` | Protocol, `SessionMachine`, `SessionController`, UDP transport |
-| `AbsoluteTouchCore/Tests/` | Core tests, including the shared golden vectors |
+| Path                           | Contents                                                       |
+| ------------------------------ | -------------------------------------------------------------- |
+| `App/ContentView.swift`        | Pairing form: address, port, token, start button               |
+| `App/StreamingView.swift`      | Full-screen canvas, session HUD, failure overlay               |
+| `App/CanvasView.swift`         | UIKit touch, hover, and coalesced-sample capture               |
+| `App/StreamingViewModel.swift` | Observable session owner and statistics polling                |
+| `AbsoluteTouchCore/Sources/`   | Protocol, `SessionMachine`, `SessionController`, UDP transport |
+| `AbsoluteTouchCore/Tests/`     | Core tests, including the shared golden vectors                |
 
 The canvas sends contact samples from coalesced touches plus a display-link
 keepalive, hover samples from a Pencil-only `UIHoverGestureRecognizer`, and one
@@ -47,11 +47,11 @@ tab. The bundle identifier is `org.dstudios.absolutetouch`.
 
 Three version numbers are deliberately different:
 
-| Setting | Value | Meaning |
-| --- | --- | --- |
-| `swift-tools-version` in `AbsoluteTouchCore/Package.swift` | 6.4 | Minimum Swift compiler for the package; CI installs 6.4.1 with `SwiftyLab/setup-swift` |
-| `SWIFT_VERSION` in `project.yml` | 6.0 | Swift **language mode** (strict concurrency), not the compiler version |
-| `deploymentTarget` in `project.yml` | 17.0 | Minimum iPadOS; the app is built against the iOS 27 SDK from Xcode 27 |
+| Setting                                                    | Value | Meaning                                                                                |
+| ---------------------------------------------------------- | ----- | -------------------------------------------------------------------------------------- |
+| `swift-tools-version` in `AbsoluteTouchCore/Package.swift` | 6.4   | Minimum Swift compiler for the package; CI installs 6.4.1 with `SwiftyLab/setup-swift` |
+| `SWIFT_VERSION` in `project.yml`                           | 6.0   | Swift **language mode** (strict concurrency), not the compiler version                 |
+| `deploymentTarget` in `project.yml`                        | 17.0  | Minimum iPadOS; the app is built against the iOS 27 SDK from Xcode 27                  |
 
 Xcode 27 supplies the compiler and SDK; `SWIFT_VERSION` only selects the
 language rules.
@@ -115,7 +115,7 @@ Do these once, in order:
 
    ```sh
    gh workflow run release.yml \
-     -f version=0.1.0 -f testflight=true -f gh_release=false -f linux=false
+     -f version=0.0.1 -f testflight=true -f gh_release=false -f linux=false
    gh run watch
    ```
 

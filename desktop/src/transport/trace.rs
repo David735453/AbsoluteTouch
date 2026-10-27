@@ -172,7 +172,7 @@ impl TraceReader {
         if header[4] != VERSION {
             return Err(TraceError::UnsupportedVersion(header[4]));
         }
-        if (length - HEADER_LEN) % RECORD_LEN != 0 {
+        if !(length - HEADER_LEN).is_multiple_of(RECORD_LEN) {
             return Err(TraceError::Truncated {
                 path: path.to_path_buf(),
                 length,

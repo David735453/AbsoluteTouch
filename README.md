@@ -32,7 +32,7 @@ later; the host substitutes a configurable level when pressure is unavailable.
 
 ## Requirements
 
-- Rust 1.85+ (edition 2024)
+- Rust 1.99+ (edition 2024)
 - Swift 6.4+ for the core package
 - Ruby 3.4+ for the Fastfile syntax check and the iOS release lane
 - macOS with Xcode 27 and XcodeGen for iOS builds (CI only in this repository)

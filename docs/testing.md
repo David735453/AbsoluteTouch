@@ -6,25 +6,25 @@ compile.
 
 ## Test layers
 
-| Layer | What it covers | Where |
-| --- | --- | --- |
-| Protocol unit tests | Length, magic, version, type, token, round-trip | `desktop/src/protocol/` |
-| Golden vectors | Cross-language byte agreement | `protocol/vectors.json` |
-| CLI tests | Argument parsing and defaults | `desktop/src/cli.rs` |
-| Config tests | Defaults, precedence, validation, example file | `desktop/src/config.rs` |
-| Mapping tests | Stretch, offset, letterbox, flag passthrough | `desktop/src/mapping.rs` |
-| Session tests | Handshake, token, peer pin, sequence window, heartbeat, watchdog, clock offset and sample age | `desktop/src/session.rs` |
-| Injector tests (mock) | Exact event sequences through `MockInjector` | `desktop/src/inject/mock.rs` |
-| Injector tests (Linux) | Frames, tilt, tool switching, release; real device when permitted | `desktop/src/inject/linux.rs` |
-| Trace tests | Round-trip, offsets, truncation, corrupt packets | `desktop/src/transport/trace.rs` |
-| UDP tests | Local socket receive, decode errors, replies, shutdown | `desktop/src/transport/udp.rs` |
-| End-to-end | HELLO/SAMPLE/BYE over loopback, record then replay | `desktop/src/run.rs` |
-| Swift core tests | Same protocol and vectors as Rust | `ios/AbsoluteTouchCore/Tests/` |
-| Swift session tests | Handshake, heartbeat RTT, timeout re-handshake, sequence wrap | `ios/AbsoluteTouchCore/Tests/AbsoluteTouchCoreTests/SessionMachineTests.swift` |
-| Swift controller tests | Fake datagram transport, state stream, failure, `BYE` | `ios/AbsoluteTouchCore/Tests/AbsoluteTouchCoreTests/SessionControllerTests.swift` |
-| Swift mailbox tests | Bounded buffer, drop-oldest, one wakeup per burst, coalescing keeps state changes | `ios/AbsoluteTouchCore/Tests/AbsoluteTouchCoreTests/SampleMailboxTests.swift` |
-| Swift pointer tests | Coordinate/angle normalization, phase flags, token parsing | `PointerSampleTests.swift`, `PairingTokenTests.swift` |
-| Manual hardware tests | Real Pencil, real backend, real OS | Checklist below |
+| Layer                  | What it covers                                                                                | Where                                                                             |
+| ---------------------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Protocol unit tests    | Length, magic, version, type, token, round-trip                                               | `desktop/src/protocol/`                                                           |
+| Golden vectors         | Cross-language byte agreement                                                                 | `protocol/vectors.json`                                                           |
+| CLI tests              | Argument parsing and defaults                                                                 | `desktop/src/cli.rs`                                                              |
+| Config tests           | Defaults, precedence, validation, example file                                                | `desktop/src/config.rs`                                                           |
+| Mapping tests          | Stretch, offset, letterbox, flag passthrough                                                  | `desktop/src/mapping.rs`                                                          |
+| Session tests          | Handshake, token, peer pin, sequence window, heartbeat, watchdog, clock offset and sample age | `desktop/src/session.rs`                                                          |
+| Injector tests (mock)  | Exact event sequences through `MockInjector`                                                  | `desktop/src/inject/mock.rs`                                                      |
+| Injector tests (Linux) | Frames, tilt, tool switching, release; real device when permitted                             | `desktop/src/inject/linux.rs`                                                     |
+| Trace tests            | Round-trip, offsets, truncation, corrupt packets                                              | `desktop/src/transport/trace.rs`                                                  |
+| UDP tests              | Local socket receive, decode errors, replies, shutdown                                        | `desktop/src/transport/udp.rs`                                                    |
+| End-to-end             | HELLO/SAMPLE/BYE over loopback, record then replay                                            | `desktop/src/run.rs`                                                              |
+| Swift core tests       | Same protocol and vectors as Rust                                                             | `ios/AbsoluteTouchCore/Tests/`                                                    |
+| Swift session tests    | Handshake, heartbeat RTT, timeout re-handshake, sequence wrap                                 | `ios/AbsoluteTouchCore/Tests/AbsoluteTouchCoreTests/SessionMachineTests.swift`    |
+| Swift controller tests | Fake datagram transport, state stream, failure, `BYE`                                         | `ios/AbsoluteTouchCore/Tests/AbsoluteTouchCoreTests/SessionControllerTests.swift` |
+| Swift mailbox tests    | Bounded buffer, drop-oldest, one wakeup per burst, coalescing keeps state changes             | `ios/AbsoluteTouchCore/Tests/AbsoluteTouchCoreTests/SampleMailboxTests.swift`     |
+| Swift pointer tests    | Coordinate/angle normalization, phase flags, token parsing                                    | `PointerSampleTests.swift`, `PairingTokenTests.swift`                             |
+| Manual hardware tests  | Real Pencil, real backend, real OS                                                            | Checklist below                                                                   |
 
 ## Commands
 
@@ -70,14 +70,14 @@ runs one of the project commands. `make hooks` is the explicit, idempotent
 target, and `make hooks-off` restores the default. The hook only looks at staged
 files:
 
-| Staged files | Checks |
-| --- | --- |
-| `desktop/**/*.rs`, `desktop/Cargo.toml`, `desktop/Cargo.lock` | `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --all-targets` |
-| `ios/**/*.swift`, `ios/AbsoluteTouchCore/Package.swift` | `swift format lint --strict`, `swift test`, and `swiftlint` (via `tools/swiftlint.sh`) |
-| `.github/workflows/*.yml`, `.github/dependabot.yml`, `ios/project.yml` | Ruby YAML parse, plus `actionlint` (local binary or the pinned Docker image) |
-| `ios/App/**/*.plist`, `ios/App/PrivacyInfo.xcprivacy` | `plistlib` parse |
-| `protocol/`, `tools/gen_vectors.py` | `gen_vectors.py --check` |
-| `ios/Gemfile`, `ios/fastlane/Fastfile` | `ruby -c` |
+| Staged files                                                           | Checks                                                                                       |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `desktop/**/*.rs`, `desktop/Cargo.toml`, `desktop/Cargo.lock`          | `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --all-targets` |
+| `ios/**/*.swift`, `ios/AbsoluteTouchCore/Package.swift`                | `swift format lint --strict`, `swift test`, and `swiftlint` (via `tools/swiftlint.sh`)       |
+| `.github/workflows/*.yml`, `.github/dependabot.yml`, `ios/project.yml` | Ruby YAML parse, plus `actionlint` (local binary or the pinned Docker image)                 |
+| `ios/App/**/*.plist`, `ios/App/PrivacyInfo.xcprivacy`                  | `plistlib` parse                                                                             |
+| `protocol/`, `tools/gen_vectors.py`                                    | `gen_vectors.py --check`                                                                     |
+| `ios/Gemfile`, `ios/fastlane/Fastfile`                                 | `ruby -c`                                                                                    |
 
 The hook reports problems and the make target that fixes them; it never rewrites
 files. Missing tools (`swift`, `swiftlint`, `ruby`) are skipped with a note, so
@@ -113,12 +113,12 @@ Two limits matter:
 The repository follows the newest supported releases rather than pinning old
 major versions:
 
-| Tool | Version source |
-| --- | --- |
-| Rust | `rust-toolchain.toml` (`stable`); CI uses `dtolnay/rust-toolchain@stable` |
-| Swift | `swift-tools-version: 6.4`; CI installs 6.4.1 with `SwiftyLab/setup-swift@latest` |
-| Xcode | `xcode-27` runner plus `maxim-lobanov/setup-xcode@v1` with `xcode-version: latest` |
-| Ruby | `ruby/setup-ruby@v1` with `ruby-version: "4.0"` |
+| Tool           | Version source                                                                                                      |
+| -------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Rust           | `rust-toolchain.toml` (`stable`); CI uses `dtolnay/rust-toolchain@stable`                                           |
+| Swift          | `swift-tools-version: 6.4`; CI installs 6.4.1 with `SwiftyLab/setup-swift@latest`                                   |
+| Xcode          | `xcode-27` runner plus `maxim-lobanov/setup-xcode@v1` with `xcode-version: latest`                                  |
+| Ruby           | `ruby/setup-ruby@v1` with `ruby-version: "4.0"`                                                                     |
 | GitHub Actions | newest major tags (`checkout@v7`, `cache@v6`, `upload-artifact@v7`, `download-artifact@v8`, `action-gh-release@v3`) |
 
 `.github/dependabot.yml` opens weekly, grouped PRs on Monday for two ecosystems:
@@ -177,14 +177,14 @@ reorder or repurpose a field silently.
 Runs automatically on every push to `main` and nightly at 04:17 UTC, and can be
 started with `workflow_dispatch`. Pull requests do not trigger it.
 
-| Job | Runner | Push | Nightly | Manual input |
-| --- | --- | --- | --- | --- |
-| `lint` | `ubuntu-26.04` | yes | yes | `lint` |
-| `linux` | `ubuntu-26.04` | yes | yes | `linux` |
-| `macos` | `xcode-27` | yes | yes | `macos` |
-| `linux-arm` | `ubuntu-26.04-arm` | no | yes | `linux_arm` |
-| `windows` | `windows-latest` | no | yes | `windows` |
-| `windows-arm` | `windows-11-arm` | no | yes | `windows_arm` |
+| Job           | Runner             | Push | Nightly | Manual input  |
+| ------------- | ------------------ | ---- | ------- | ------------- |
+| `lint`        | `ubuntu-26.04`     | yes  | yes     | `lint`        |
+| `linux`       | `ubuntu-26.04`     | yes  | yes     | `linux`       |
+| `macos`       | `xcode-27`         | yes  | yes     | `macos`       |
+| `linux-arm`   | `ubuntu-26.04-arm` | no   | yes     | `linux_arm`   |
+| `windows`     | `windows-latest`   | no   | yes     | `windows`     |
+| `windows-arm` | `windows-11-arm`   | no   | yes     | `windows_arm` |
 
 The push run is the fast gate: lint, Linux x86_64, and macOS/iOS. The nightly
 adds the ARM64 and Windows beta targets so they do not rot. A manual dispatch
@@ -192,13 +192,13 @@ uses the per-platform booleans and defaults to `linux`, `macos`, and `lint`.
 GitHub disables scheduled workflows after 60 days of repository inactivity;
 re-enable the schedule from the Actions tab if the nightly stops running.
 
-| Job | What runs |
-| --- | --- |
-| `lint` | Golden vectors, `cargo fmt --check`, `swift format lint --strict` (Swift 6.4.1), `ruby -c`, YAML/JSON/plist parse checks, `actionlint` |
-| `linux` | Vector check, Rust fmt/clippy/tests, doctor, Swift format check and Swift core tests (Swift 6.4.1) |
-| `linux-arm` | Vector check, Rust fmt/clippy/tests |
-| `windows`, `windows-arm` | Rust fmt/clippy/tests (beta) |
-| `macos` | Rust tests, Swift core tests, `swift format lint --strict`, SwiftLint, XcodeGen, unsigned simulator build |
+| Job                      | What runs                                                                                                                              |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `lint`                   | Golden vectors, `cargo fmt --check`, `swift format lint --strict` (Swift 6.4.1), `ruby -c`, YAML/JSON/plist parse checks, `actionlint` |
+| `linux`                  | Vector check, Rust fmt/clippy/tests, doctor, Swift format check and Swift core tests (Swift 6.4.1)                                     |
+| `linux-arm`              | Vector check, Rust fmt/clippy/tests                                                                                                    |
+| `windows`, `windows-arm` | Rust fmt/clippy/tests (beta)                                                                                                           |
+| `macos`                  | Rust tests, Swift core tests, `swift format lint --strict`, SwiftLint, XcodeGen, unsigned simulator build                              |
 
 iOS jobs run on the `xcode-27` runner image and select Xcode with
 `maxim-lobanov/setup-xcode@v1` using `xcode-version: latest`, so a new
@@ -224,11 +224,11 @@ Swift forces the choice. The core declares `swift-tools-version: 6.4`, so the
 extractor must trace a build made by a matching toolchain; default setup's
 autobuild called `swift build` with an older Swift and produced no results.
 
-| Language | Runner | Build |
-| --- | --- | --- |
-| `actions`, `python`, `ruby` | `ubuntu-26.04` | none |
-| `rust` | `ubuntu-26.04` | none (CodeQL v4 has no Rust autobuild) |
-| `swift` | `xcode-27` | manual: `swift build --package-path ios/AbsoluteTouchCore --disable-sandbox` with Xcode's Swift 6.4.2 |
+| Language                    | Runner         | Build                                                                                                 |
+| --------------------------- | -------------- | ----------------------------------------------------------------------------------------------------- |
+| `actions`, `python`, `ruby` | `ubuntu-26.04` | none                                                                                                  |
+| `rust`                      | `ubuntu-26.04` | none (CodeQL v4 has no Rust autobuild)                                                                |
+| `swift`                     | `xcode-27`     | manual: `swift build --package-path ios/AbsoluteTouchCore --disable-sandbox` with Xcode's Swift 6.4.2 |
 
 Only the UI-free core is analyzed; the UIKit app shell needs the generated Xcode
 project and is covered by the `macos` job in `ci.yml`. The Swift job deliberately
@@ -259,14 +259,14 @@ gh api repos/David735453/AbsoluteTouch/code-scanning/alerts --jq '.[].rule.id'
 Manual and versioned. There is no separate TestFlight workflow: the TestFlight
 job is one of the toggles.
 
-| Input | Default | Effect |
-| --- | --- | --- |
-| `version` | required | Tag and file names, and the iOS `MARKETING_VERSION` |
-| `testflight` | `false` | Signed archive, upload to TestFlight, keep the IPA artifact for 14 days |
-| `gh_release` | `true` | Publish a GitHub release with the selected desktop binaries |
-| `draft` | `true` | Create the GitHub release as a draft |
-| `linux` | `true` | Linux x86_64 tarball |
-| `linux_arm`, `windows`, `windows_arm`, `macos` | `false` | Beta platform builds |
+| Input                                          | Default  | Effect                                                                  |
+| ---------------------------------------------- | -------- | ----------------------------------------------------------------------- |
+| `version`                                      | required | Tag and file names, and the iOS `MARKETING_VERSION`                     |
+| `testflight`                                   | `false`  | Signed archive, upload to TestFlight, keep the IPA artifact for 14 days |
+| `gh_release`                                   | `true`   | Publish a GitHub release with the selected desktop binaries             |
+| `draft`                                        | `true`   | Create the GitHub release as a draft                                    |
+| `linux`                                        | `true`   | Linux x86_64 tarball                                                    |
+| `linux_arm`, `windows`, `windows_arm`, `macos` | `false`  | Beta platform builds                                                    |
 
 Validation rejects a run that selects neither TestFlight nor any platform.
 The TestFlight job runs in the `testflight` environment and needs the four
@@ -277,14 +277,14 @@ download. If any selected job fails, the release is not published.
 
 ```sh
 # Desktop release only
-gh workflow run release.yml -f version=0.1.0
+gh workflow run release.yml -f version=0.0.1
 
 # TestFlight only, no GitHub release and no desktop binaries
 gh workflow run release.yml \
-  -f version=0.1.0 -f testflight=true -f gh_release=false -f linux=false
+  -f version=0.0.1 -f testflight=true -f gh_release=false -f linux=false
 
 # Both
-gh workflow run release.yml -f version=0.1.0 -f testflight=true
+gh workflow run release.yml -f version=0.0.1 -f testflight=true
 ```
 
 ### First-time setup
@@ -346,11 +346,11 @@ caches saved on `main` are available to `main` runs and to branches created
 from it, not the other way round. Every cache here is bounded and keyed on
 inputs that change rarely.
 
-| Cache | Path | Key inputs | Typical size | Refresh |
-| --- | --- | --- | --- | --- |
-| Rust build (`Swatinem/rust-cache@v2`) | `desktop/target`, Cargo registry | toolchain, `Cargo.lock`, runner | 300–800 MB per platform | managed by the action |
-| Homebrew downloads | `~/Library/Caches/Homebrew/downloads` | OS, architecture, hash of `ci.yml` and `release.yml` | 20–60 MB | edit either workflow |
-| SwiftPM build | `ios/AbsoluteTouchCore/.build` | OS, architecture, `swift-6.4`, `v1`, hash of `Package.swift` | 20–50 MB | bump `v1` in `ci.yml` |
+| Cache                                 | Path                                  | Key inputs                                                   | Typical size            | Refresh               |
+| ------------------------------------- | ------------------------------------- | ------------------------------------------------------------ | ----------------------- | --------------------- |
+| Rust build (`Swatinem/rust-cache@v2`) | `desktop/target`, Cargo registry      | toolchain, `Cargo.lock`, runner                              | 300–800 MB per platform | managed by the action |
+| Homebrew downloads                    | `~/Library/Caches/Homebrew/downloads` | OS, architecture, hash of `ci.yml` and `release.yml`         | 20–60 MB                | edit either workflow  |
+| SwiftPM build                         | `ios/AbsoluteTouchCore/.build`        | OS, architecture, `swift-6.4`, `v1`, hash of `Package.swift` | 20–50 MB                | bump `v1` in `ci.yml` |
 
 `actions/cache` only writes a cache when the exact key is missing, so the
 SwiftPM entry is a snapshot: later runs restore it, recompile whatever changed,

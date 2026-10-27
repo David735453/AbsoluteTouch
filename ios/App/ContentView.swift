@@ -240,7 +240,7 @@ struct ContentView: View {
 	private var marketingVersion: String {
 		Bundle.main.object(
 			forInfoDictionaryKey: "CFBundleShortVersionString"
-		) as? String ?? "0.1.0"
+		) as? String ?? "0.0.1"
 	}
 
 	private var connectionSettings: ConnectionSettings? {

@@ -8,13 +8,13 @@ backends (M5, M6) are planned.
 
 ## Requirements
 
-| Component | Requirement |
-| --- | --- |
-| Desktop | Rust 1.85 or newer (edition 2024) |
-| iPad app build | macOS, Xcode 27, XcodeGen |
-| iOS | iPadOS 17.0 or newer |
-| Linux backend | Write access to `/dev/uinput`; read access to `/dev/input/event*` for `evtest` |
-| Swift core tests | Swift 6.4 or newer (Linux or macOS) |
+| Component        | Requirement                                                                    |
+| ---------------- | ------------------------------------------------------------------------------ |
+| Desktop          | Rust 1.99 or newer (edition 2024)                                              |
+| iPad app build   | macOS, Xcode 27, XcodeGen                                                      |
+| iOS              | iPadOS 17.0 or newer                                                           |
+| Linux backend    | Write access to `/dev/uinput`; read access to `/dev/input/event*` for `evtest` |
+| Swift core tests | Swift 6.4 or newer (Linux or macOS)                                            |
 
 The core package declares `swift-tools-version: 6.4`; CI installs Swift 6.4.1
 with `SwiftyLab/setup-swift`. The iOS app's `SWIFT_VERSION: "6.0"` is the Swift
@@ -63,19 +63,19 @@ areas; `make hooks-off` disables it.
 [Configuration file](#configuration-file). Environment variables override the
 file:
 
-| Variable | Meaning |
-| --- | --- |
-| `ABSOLUTETOUCH_BIND` | Listener address |
-| `ABSOLUTETOUCH_UDP_PORT` | Wi-Fi UDP port (default 37689) |
-| `ABSOLUTETOUCH_TCP_PORT` | USB TCP port (default 37690) |
-| `ABSOLUTETOUCH_TRANSPORT` | `wifi` or `usb` |
-| `ABSOLUTETOUCH_TOKEN` | 32 hex characters |
-| `ABSOLUTETOUCH_BACKEND` | `auto`, `mock`, `uinput`, `windows`, `macos` |
-| `ABSOLUTETOUCH_DEVICE` | `pointer` (default) or `tablet` |
-| `ABSOLUTETOUCH_DRY_RUN` | `true` or `false` |
-| `ABSOLUTETOUCH_WATCHDOG_MS` | Release timeout in milliseconds |
-| `ABSOLUTETOUCH_SESSION_TIMEOUT_MS` | Session timeout in milliseconds |
-| `ABSOLUTETOUCH_PRESSURE_DEFAULT` | Fallback pressure level |
+| Variable                           | Meaning                                      |
+| ---------------------------------- | -------------------------------------------- |
+| `ABSOLUTETOUCH_BIND`               | Listener address                             |
+| `ABSOLUTETOUCH_UDP_PORT`           | Wi-Fi UDP port (default 37689)               |
+| `ABSOLUTETOUCH_TCP_PORT`           | USB TCP port (default 37690)                 |
+| `ABSOLUTETOUCH_TRANSPORT`          | `wifi` or `usb`                              |
+| `ABSOLUTETOUCH_TOKEN`              | 32 hex characters                            |
+| `ABSOLUTETOUCH_BACKEND`            | `auto`, `mock`, `uinput`, `windows`, `macos` |
+| `ABSOLUTETOUCH_DEVICE`             | `pointer` (default) or `tablet`              |
+| `ABSOLUTETOUCH_DRY_RUN`            | `true` or `false`                            |
+| `ABSOLUTETOUCH_WATCHDOG_MS`        | Release timeout in milliseconds              |
+| `ABSOLUTETOUCH_SESSION_TIMEOUT_MS` | Session timeout in milliseconds              |
+| `ABSOLUTETOUCH_PRESSURE_DEFAULT`   | Fallback pressure level                      |
 
 ### Run and replay
 
@@ -252,6 +252,7 @@ inspect a trace.
    It prints `listening on udp 0.0.0.0:37689`. Use
    `cargo run -- run --dry-run` to watch samples on the terminal instead of
    injecting them.
+
 3. Read the pairing token with `cargo run -- token`, or create one with
    `cargo run -- token --reset`. The reset form rewrites the config file.
 4. Build and run the iPad app, then enter the address, port 37689, and the
@@ -306,10 +307,10 @@ HUD counts the samples it replaced as `coalesced`.
 
 ### Ports
 
-| Transport | Protocol | Port | Listener |
-| --- | --- | ---: | --- |
-| Wi-Fi | UDP | 37689 | Desktop |
-| USB | TCP | 37690 | iPad via `usbmuxd` |
+| Transport | Protocol |  Port | Listener           |
+| --------- | -------- | ----: | ------------------ |
+| Wi-Fi     | UDP      | 37689 | Desktop            |
+| USB       | TCP      | 37690 | iPad via `usbmuxd` |
 
 Allow inbound UDP 37689 in the desktop firewall for Wi-Fi sessions. Do not
 expose it to the internet.
@@ -338,10 +339,10 @@ The desktop reads a TOML file and applies CLI overrides last:
 
 Default paths:
 
-| Condition | Path |
-| --- | --- |
+| Condition                | Path                                         |
+| ------------------------ | -------------------------------------------- |
 | `XDG_CONFIG_HOME` is set | `$XDG_CONFIG_HOME/absolutetouch/config.toml` |
-| Otherwise, `HOME` is set | `$HOME/.config/absolutetouch/config.toml` |
+| Otherwise, `HOME` is set | `$HOME/.config/absolutetouch/config.toml`    |
 
 `--config PATH` overrides the default. Platform-native locations (macOS
 Application Support, Windows `%APPDATA%`) arrive with those backends; until
@@ -417,23 +418,23 @@ tablet.
 
 ## Troubleshooting
 
-| Symptom | Check |
-| --- | --- |
-| No cursor movement | `doctor`, firewall, correct desktop IP, token, iPad foreground; then check that `run` was not started with `--dry-run` or `--backend mock`, which never create a device |
-| App stays on **Connecting** | Same network, port 37689, matching token, desktop logs; check the app's token field |
-| **Connecting** for a few seconds after a crash | The desktop still holds the old peer; it clears after the 5000 ms session timeout |
-| App says **Disconnected** | The transport closed: relaunch the app, check Wi-Fi, then start again |
-| Hover works but contact does not | Pencil tip, app foreground, canvas not covered by the HUD |
-| Cursor moves but buttons stick | Stop the desktop; the watchdog should release. Report a bug with a trace |
-| Pointer trails behind the Pencil, or lags in bursts | Check `input latency` in the summary, then Wi-Fi power saving (`iw dev wlan0 get power_save`) and the access point; see [Latency](#latency) |
-| `doctor` says `/dev/uinput` missing | Load the module, fix the udev rule, log out and in |
-| `uinput` is present but not writable | Recheck the udev rule and group membership; `newgrp input` or log in again |
-| No **AbsoluteTouch Pointer** (or **Tablet**) device | The session process must be running; check `/proc/bus/input/devices` and the `device` setting |
-| Game ignores the tablet | Select the device explicitly, or check Raw Input/tablet settings |
-| Local network prompt never appears | Reinstall or reset the app; check Settings → Privacy → Local Network |
-| USB device not listed | Trust the iPad, check `usbmuxd`, try `idevice_id -l` |
-| iOS build fails on signing | Set the development team; CI builds use `CODE_SIGNING_ALLOWED=NO` |
-| TestFlight upload fails | Check the `testflight` environment secrets and API key permissions; run the TestFlight toggle from the Release workflow |
+| Symptom                                             | Check                                                                                                                                                                   |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No cursor movement                                  | `doctor`, firewall, correct desktop IP, token, iPad foreground; then check that `run` was not started with `--dry-run` or `--backend mock`, which never create a device |
+| App stays on **Connecting**                         | Same network, port 37689, matching token, desktop logs; check the app's token field                                                                                     |
+| **Connecting** for a few seconds after a crash      | The desktop still holds the old peer; it clears after the 5000 ms session timeout                                                                                       |
+| App says **Disconnected**                           | The transport closed: relaunch the app, check Wi-Fi, then start again                                                                                                   |
+| Hover works but contact does not                    | Pencil tip, app foreground, canvas not covered by the HUD                                                                                                               |
+| Cursor moves but buttons stick                      | Stop the desktop; the watchdog should release. Report a bug with a trace                                                                                                |
+| Pointer trails behind the Pencil, or lags in bursts | Check `input latency` in the summary, then Wi-Fi power saving (`iw dev wlan0 get power_save`) and the access point; see [Latency](#latency)                             |
+| `doctor` says `/dev/uinput` missing                 | Load the module, fix the udev rule, log out and in                                                                                                                      |
+| `uinput` is present but not writable                | Recheck the udev rule and group membership; `newgrp input` or log in again                                                                                              |
+| No **AbsoluteTouch Pointer** (or **Tablet**) device | The session process must be running; check `/proc/bus/input/devices` and the `device` setting                                                                           |
+| Game ignores the tablet                             | Select the device explicitly, or check Raw Input/tablet settings                                                                                                        |
+| Local network prompt never appears                  | Reinstall or reset the app; check Settings → Privacy → Local Network                                                                                                    |
+| USB device not listed                               | Trust the iPad, check `usbmuxd`, try `idevice_id -l`                                                                                                                    |
+| iOS build fails on signing                          | Set the development team; CI builds use `CODE_SIGNING_ALLOWED=NO`                                                                                                       |
+| TestFlight upload fails                             | Check the `testflight` environment secrets and API key permissions; run the TestFlight toggle from the Release workflow                                                 |
 
 When reporting a bug, include the OS, backend, transport, and a recorded trace.
 Never include tokens or personal network details.
