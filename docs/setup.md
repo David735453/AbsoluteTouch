@@ -71,6 +71,7 @@ file:
 | `ABSOLUTETOUCH_TRANSPORT` | `wifi` or `usb` |
 | `ABSOLUTETOUCH_TOKEN` | 32 hex characters |
 | `ABSOLUTETOUCH_BACKEND` | `auto`, `mock`, `uinput`, `windows`, `macos` |
+| `ABSOLUTETOUCH_DEVICE` | `pointer` (default) or `tablet` |
 | `ABSOLUTETOUCH_DRY_RUN` | `true` or `false` |
 | `ABSOLUTETOUCH_WATCHDOG_MS` | Release timeout in milliseconds |
 | `ABSOLUTETOUCH_SESSION_TIMEOUT_MS` | Session timeout in milliseconds |
@@ -139,18 +140,25 @@ Verify with `cargo run -- doctor`; it should print `uinput: present and
 writable`. Reading `/dev/input/event*` is only needed for verification with
 `evtest`; the desktop writes samples and does not read them back.
 
-Start a session and check that the device is registered:
+Start a session and check that the device is registered. The name depends on
+the `device` setting: `pointer` (the default) registers **AbsoluteTouch
+Pointer**, and `device = "tablet"` registers **AbsoluteTouch Tablet**.
 
 ```sh
-grep -A12 "AbsoluteTouch Tablet" /proc/bus/input/devices
+grep -A12 "AbsoluteTouch" /proc/bus/input/devices
 ```
 
-The entry should show `EV=b` (key, absolute axes, and synchronization) and an
+Both devices show `EV=b` (key, absolute axes, and synchronization) and an
 `ABS=` mask covering `ABS_X`, `ABS_Y`, `ABS_PRESSURE`, `ABS_TILT_X`, and
-`ABS_TILT_Y`. The `KEY=` mask covers `BTN_TOOL_PEN`, `BTN_TOOL_RUBBER`,
-`BTN_TOOL_FINGER`, `BTN_TOUCH`, and `BTN_STYLUS`. While the process runs, the
-device appears as **AbsoluteTouch Tablet** in desktop input settings and in
-`libinput list-devices`.
+`ABS_TILT_Y`. The pointer device declares `BTN_LEFT` and `BTN_RIGHT`; the
+tablet declares `BTN_TOOL_PEN`, `BTN_TOOL_RUBBER`, `BTN_TOOL_FINGER`,
+`BTN_TOUCH`, and `BTN_STYLUS`. While the process runs, the device appears under
+its name in desktop input settings and in `libinput list-devices`.
+
+Use `pointer` for osu! and general desktop control. Use `tablet` for drawing
+applications that consume tablet events: on Wayland compositors a stylus-class
+device does not move the cursor, so pointer mode is the only shape that works
+everywhere. See [ADR 0008](decisions/0008-linux-pointer-device.md).
 
 ## iPad app
 
@@ -201,6 +209,9 @@ absolutetouch run
 
 # Same, with the backend named explicitly
 absolutetouch run --backend uinput
+
+# Register a stylus tablet instead of the default pointer device
+absolutetouch run --device tablet
 
 # Record the session while injecting
 absolutetouch run --record session.atrace
@@ -315,6 +326,9 @@ session_timeout_ms = 5000
 pressure_default = 32768
 dry_run = false
 backend = "auto"
+# "pointer" (default) moves the desktop cursor; "tablet" exposes tool,
+# pressure, and tilt events for tablet-aware applications.
+device = "pointer"
 
 [mapping]
 aspect = "preserve"
@@ -362,8 +376,10 @@ The target is both osu! stable and osu! lazer.
 
 The iPad active area maps to a configurable desktop rectangle. Use the osu!
 tablet area settings or the AbsoluteTouch mapping options, not both in
-conflicting ways. On Linux the virtual device is named **AbsoluteTouch Tablet**;
-select it where the game or desktop asks for a tablet.
+conflicting ways. On Linux the virtual device is named **AbsoluteTouch
+Pointer** with the default `device = "pointer"`, or **AbsoluteTouch Tablet**
+with `device = "tablet"`; select it where the game or desktop asks for a
+tablet.
 
 ## Troubleshooting
 
@@ -377,7 +393,7 @@ select it where the game or desktop asks for a tablet.
 | Cursor moves but buttons stick | Stop the desktop; the watchdog should release. Report a bug with a trace |
 | `doctor` says `/dev/uinput` missing | Load the module, fix the udev rule, log out and in |
 | `uinput` is present but not writable | Recheck the udev rule and group membership; `newgrp input` or log in again |
-| No **AbsoluteTouch Tablet** device | The session process must be running; check `/proc/bus/input/devices` |
+| No **AbsoluteTouch Pointer** (or **Tablet**) device | The session process must be running; check `/proc/bus/input/devices` and the `device` setting |
 | Game ignores the tablet | Select the device explicitly, or check Raw Input/tablet settings |
 | Local network prompt never appears | Reinstall or reset the app; check Settings → Privacy → Local Network |
 | USB device not listed | Trust the iPad, check `usbmuxd`, try `idevice_id -l` |

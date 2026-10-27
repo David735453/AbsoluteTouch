@@ -406,8 +406,11 @@ backend, transport, iPad model, and Pencil model to the result.
 ### Connection
 
 - [ ] `doctor` reports the backend and permissions correctly.
-- [ ] On Linux, `run` registers **AbsoluteTouch Tablet** with the expected axes
-      and keys in `/proc/bus/input/devices` and `libinput list-devices`.
+- [ ] On Linux, `run` registers **AbsoluteTouch Pointer** (default) or
+      **AbsoluteTouch Tablet** (`--device tablet`) with the expected axes and
+      keys in `/proc/bus/input/devices` and `libinput list-devices`.
+- [ ] Moving the Pencil moves the desktop cursor in pointer mode on the session
+      type under test (Wayland or X11).
 - [ ] `HELLO` / `HELLO_ACK` completes within one second.
 - [ ] A wrong token is rejected and logged.
 - [ ] A second iPad with the wrong token or source IP cannot take over.

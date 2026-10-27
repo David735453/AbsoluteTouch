@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::inject::DeviceMode;
 use crate::mapping::{AspectMode, Rect};
 
 /// Transport selected for a session.
@@ -46,6 +47,8 @@ pub struct Config {
     pub dry_run: bool,
     /// Injection backend: `auto`, `mock`, `uinput`, `windows`, or `macos`.
     pub backend: String,
+    /// Virtual device to register: `pointer` or `tablet`.
+    pub device: DeviceMode,
     /// Coordinate mapping settings.
     pub mapping: MappingConfig,
 }
@@ -88,6 +91,7 @@ impl Default for Config {
             pressure_default: 32_768,
             dry_run: false,
             backend: "auto".to_owned(),
+            device: DeviceMode::Pointer,
             mapping: MappingConfig::default(),
         }
     }
@@ -100,6 +104,8 @@ pub struct Overrides {
     pub transport: Option<TransportMode>,
     /// Backend selected on the command line.
     pub backend: Option<String>,
+    /// Virtual device selected on the command line.
+    pub device: Option<DeviceMode>,
     /// Dry-run selected on the command line.
     pub dry_run: Option<bool>,
 }
@@ -197,6 +203,12 @@ impl Config {
         if let Some(value) = present(lookup("ABSOLUTETOUCH_BACKEND")) {
             config.backend = value;
         }
+        if let Some(value) = present(lookup("ABSOLUTETOUCH_DEVICE")) {
+            config.device = DeviceMode::from_name(&value).ok_or(ConfigError::InvalidValue {
+                name: "ABSOLUTETOUCH_DEVICE",
+                value,
+            })?;
+        }
         if let Some(value) = present(lookup("ABSOLUTETOUCH_TOKEN")) {
             config.token = Some(value);
         }
@@ -242,6 +254,9 @@ impl Config {
         }
         if let Some(backend) = &overrides.backend {
             self.backend.clone_from(backend);
+        }
+        if let Some(device) = overrides.device {
+            self.device = device;
         }
         if let Some(dry_run) = overrides.dry_run {
             self.dry_run = dry_run;
@@ -422,6 +437,7 @@ fn parse<T: std::str::FromStr>(value: &str, name: &'static str) -> Result<T, Con
 #[cfg(test)]
 mod tests {
     use super::{Config, Overrides, TransportMode, decode_hex16, encode_hex16, generate_token};
+    use crate::inject::DeviceMode;
     use crate::mapping::{AspectMode, Rect};
 
     #[test]
@@ -435,6 +451,7 @@ mod tests {
         assert!(config.token.is_none());
         assert_eq!(config.watchdog_ms, 750);
         assert!(config.session_timeout_ms > config.watchdog_ms);
+        assert_eq!(config.device, DeviceMode::Pointer);
         assert_eq!(config.mapping.aspect, AspectMode::Preserve);
     }
 
@@ -468,6 +485,7 @@ mod tests {
             .apply_env_with(|name| match name {
                 "ABSOLUTETOUCH_UDP_PORT" => Some("40000".to_owned()),
                 "ABSOLUTETOUCH_BACKEND" => Some("mock".to_owned()),
+                "ABSOLUTETOUCH_DEVICE" => Some("tablet".to_owned()),
                 "ABSOLUTETOUCH_DRY_RUN" => Some("true".to_owned()),
                 _ => None,
             })
@@ -475,8 +493,18 @@ mod tests {
 
         assert_eq!(config.udp_port, 40_000);
         assert_eq!(config.backend, "mock");
+        assert_eq!(config.device, DeviceMode::Tablet);
         assert!(config.dry_run);
         assert_eq!(config.tcp_port, 37_690);
+    }
+
+    #[test]
+    fn invalid_device_name_is_reported() {
+        let error = Config::default()
+            .apply_env_with(|name| (name == "ABSOLUTETOUCH_DEVICE").then(|| "pen".to_owned()))
+            .expect_err("must reject");
+
+        assert!(error.to_string().contains("ABSOLUTETOUCH_DEVICE"));
     }
 
     #[test]
@@ -495,12 +523,14 @@ mod tests {
         let overrides = Overrides {
             transport: Some(TransportMode::Usb),
             backend: Some("mock".to_owned()),
+            device: Some(DeviceMode::Tablet),
             dry_run: Some(true),
         };
         let config = Config::default().apply_overrides(&overrides);
 
         assert_eq!(config.transport, TransportMode::Usb);
         assert_eq!(config.backend, "mock");
+        assert_eq!(config.device, DeviceMode::Tablet);
         assert!(config.dry_run);
     }
 
@@ -573,6 +603,7 @@ mod tests {
 
         assert_eq!(config.udp_port, 37_689);
         assert_eq!(config.backend, "auto");
+        assert_eq!(config.device, DeviceMode::Pointer);
         assert!(config.validate().is_ok());
     }
 }

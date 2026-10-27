@@ -8,7 +8,7 @@ use clap::{Args, Parser, Subcommand};
 
 use crate::config::{Config, Overrides, TransportMode, default_path, encode_hex16, generate_token};
 use crate::error::Error;
-use crate::inject::backend;
+use crate::inject::{DeviceMode, backend};
 use crate::run;
 
 /// Command-line options for AbsoluteTouch.
@@ -51,6 +51,9 @@ pub struct RunArgs {
     /// Injection backend; `auto` selects the best available.
     #[arg(long, value_name = "BACKEND")]
     pub backend: Option<String>,
+    /// Virtual device to register; `pointer` moves the desktop cursor.
+    #[arg(long, value_enum)]
+    pub device: Option<DeviceArg>,
     /// Print events without injecting them.
     #[arg(long)]
     pub dry_run: bool,
@@ -65,6 +68,9 @@ pub struct ReplayArgs {
     /// Trace file to replay.
     #[arg(value_name = "FILE")]
     pub file: PathBuf,
+    /// Virtual device to register; overrides the configuration.
+    #[arg(long, value_enum)]
+    pub device: Option<DeviceArg>,
     /// Print events without injecting them.
     #[arg(long)]
     pub dry_run: bool,
@@ -99,6 +105,24 @@ impl From<TransportArg> for TransportMode {
     }
 }
 
+/// Virtual device selection accepted by the CLI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum DeviceArg {
+    /// Absolute pointer that moves the desktop cursor.
+    Pointer,
+    /// Stylus tablet with tool, pressure, and tilt events.
+    Tablet,
+}
+
+impl From<DeviceArg> for DeviceMode {
+    fn from(value: DeviceArg) -> Self {
+        match value {
+            DeviceArg::Pointer => Self::Pointer,
+            DeviceArg::Tablet => Self::Tablet,
+        }
+    }
+}
+
 /// Parse arguments and execute the selected command.
 ///
 /// # Errors
@@ -126,6 +150,7 @@ fn run_session(args: RunArgs, config_path: Option<&Path>) -> Result<(), Error> {
     let overrides = Overrides {
         transport: args.transport.map(Into::into),
         backend: args.backend,
+        device: args.device.map(Into::into),
         dry_run: args.dry_run.then_some(true),
     };
     let config = Config::load(config_path)?
@@ -138,7 +163,7 @@ fn run_session(args: RunArgs, config_path: Option<&Path>) -> Result<(), Error> {
         });
     }
 
-    let mut injector = backend(&config.backend, config.dry_run)?;
+    let mut injector = backend(&config.backend, config.dry_run, config.device)?;
     let stop = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&stop);
     ctrlc::set_handler(move || flag.store(true, Ordering::SeqCst))
@@ -156,13 +181,14 @@ fn run_session(args: RunArgs, config_path: Option<&Path>) -> Result<(), Error> {
 
 fn replay_trace(args: &ReplayArgs, config_path: Option<&Path>) -> Result<(), Error> {
     let overrides = Overrides {
+        device: args.device.map(Into::into),
         dry_run: args.dry_run.then_some(true),
         ..Overrides::default()
     };
     let config = Config::load(config_path)?
         .apply_overrides(&overrides)
         .validate()?;
-    let mut injector = backend(&config.backend, config.dry_run)?;
+    let mut injector = backend(&config.backend, config.dry_run, config.device)?;
 
     let report = run::replay(
         &args.file,
@@ -217,8 +243,9 @@ fn token(args: &TokenArgs, config_path: Option<&Path>) -> Result<(), Error> {
 mod tests {
     use clap::Parser;
 
-    use super::{Cli, Command, TransportArg, dispatch};
+    use super::{Cli, Command, DeviceArg, TransportArg, dispatch};
     use crate::config::Config;
+    use crate::inject::DeviceMode;
 
     #[test]
     fn parses_doctor() {
@@ -236,12 +263,21 @@ mod tests {
 
     #[test]
     fn parses_run_options() {
-        let cli = Cli::try_parse_from(["absolutetouch", "run", "--transport", "usb", "--dry-run"])
-            .expect("parse run");
+        let cli = Cli::try_parse_from([
+            "absolutetouch",
+            "run",
+            "--transport",
+            "usb",
+            "--device",
+            "tablet",
+            "--dry-run",
+        ])
+        .expect("parse run");
 
         match cli.command {
             Some(Command::Run(args)) => {
                 assert_eq!(args.transport, Some(TransportArg::Usb));
+                assert_eq!(args.device, Some(DeviceArg::Tablet));
                 assert!(args.dry_run);
             }
             other => panic!("unexpected command: {other:?}"),
@@ -249,14 +285,34 @@ mod tests {
     }
 
     #[test]
+    fn device_arguments_map_to_the_backend() {
+        assert_eq!(DeviceMode::from(DeviceArg::Pointer), DeviceMode::Pointer);
+        assert_eq!(DeviceMode::from(DeviceArg::Tablet), DeviceMode::Tablet);
+    }
+
+    #[test]
+    fn unknown_device_name_is_rejected_by_the_parser() {
+        assert!(Cli::try_parse_from(["absolutetouch", "run", "--device", "pen"]).is_err());
+    }
+
+    #[test]
     fn parses_replay_options() {
-        let cli = Cli::try_parse_from(["absolutetouch", "replay", "trace.bin", "--speed", "2.0"])
-            .expect("parse replay");
+        let cli = Cli::try_parse_from([
+            "absolutetouch",
+            "replay",
+            "trace.bin",
+            "--speed",
+            "2.0",
+            "--device",
+            "pointer",
+        ])
+        .expect("parse replay");
 
         match cli.command {
             Some(Command::Replay(args)) => {
                 assert_eq!(args.file, std::path::PathBuf::from("trace.bin"));
                 assert!((args.speed - 2.0).abs() < f32::EPSILON);
+                assert_eq!(args.device, Some(DeviceArg::Pointer));
             }
             other => panic!("unexpected command: {other:?}"),
         }

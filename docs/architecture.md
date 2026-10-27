@@ -122,12 +122,15 @@ trait Injector {
 
 - `MockInjector` records events for tests and supports assertions on exact
   sequences.
-- The Linux backend (M2) registers an `AbsoluteTouch Tablet` `uinput` device
-  with `ABS_X`/`ABS_Y` (`0..=65535`), `ABS_PRESSURE`, `ABS_TILT_X`/`ABS_TILT_Y`
-  (`-90..=90` degrees), and the pen, rubber, finger, touch, and stylus keys.
-  Hover is the tool in range with `BTN_TOUCH` clear. Releasing clears every
-  button, pressure, and tilt without moving the cursor. See
-  [ADR 0006](decisions/0006-linux-uinput-tablet.md).
+- The Linux backend (M2) registers one `uinput` device with `ABS_X`/`ABS_Y`
+  (`0..=65535`), `ABS_PRESSURE`, and `ABS_TILT_X`/`ABS_TILT_Y` (`-90..=90`
+  degrees). `device = "pointer"` (the default) adds `BTN_LEFT`/`BTN_RIGHT` and
+  moves the desktop cursor; `device = "tablet"` adds the pen, rubber, finger,
+  touch, and stylus keys instead, for tablet-aware applications. Hover is the
+  tool in range with no button pressed. Releasing clears every button,
+  pressure, and tilt without moving the cursor. See
+  [ADR 0006](decisions/0006-linux-uinput-tablet.md) and
+  [ADR 0008](decisions/0008-linux-pointer-device.md).
 - Windows uses a synthetic pen device where possible and `SendInput` as a
   fallback (M5, beta).
 - macOS uses `CGEvent` mouse events (M6, beta). It requires Accessibility

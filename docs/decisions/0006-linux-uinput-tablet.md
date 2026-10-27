@@ -1,6 +1,7 @@
 # 0006: Linux `uinput` absolute tablet
 
-- **Status:** Accepted
+- **Status:** Accepted; the default device shape was revised by
+  [0008](0008-linux-pointer-device.md)
 - **Date:** 2026-10-26
 
 ## Context

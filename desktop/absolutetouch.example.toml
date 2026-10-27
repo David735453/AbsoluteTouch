@@ -29,6 +29,13 @@ dry_run = false
 # Linux; `--dry-run` always uses the mock backend.
 backend = "auto"
 
+# Virtual device registered on Linux. "pointer" is an absolute pointer that
+# moves the desktop cursor on X11 and on Wayland compositors, which is what
+# osu! and general pointer use need. "tablet" exposes tool, pressure, and tilt
+# events for tablet-aware applications; Wayland compositors do not move the
+# cursor from a stylus-class device.
+device = "pointer"
+
 [mapping]
 # "preserve" letterboxes the iPad aspect ratio inside the target rectangle;
 # "stretch" fills it. Preserving needs both aspect ratios.
