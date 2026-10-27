@@ -809,7 +809,7 @@ mod tests {
         packet.flags = flags::CONTACT | flags::PREDICTED;
         session.handle(peer(), &packet, started);
 
-        assert!(session.take_actions().is_empty());
+        assert_eq!(session.take_actions(), []);
         assert_eq!(session.stats().predicted_skipped, 1);
     }
 
@@ -919,7 +919,7 @@ mod tests {
         packet.flags = flags::CONTACT | flags::HOVER;
         session.handle(peer(), &packet, started);
 
-        assert!(session.take_actions().is_empty());
+        assert_eq!(session.take_actions(), []);
         assert_eq!(session.stats().ignored, 1);
     }
 
@@ -932,7 +932,7 @@ mod tests {
         session.take_actions();
 
         session.tick(started + Duration::from_millis(700));
-        assert!(session.take_actions().is_empty());
+        assert_eq!(session.take_actions(), []);
 
         session.tick(started + Duration::from_millis(800));
         assert_eq!(session.take_actions(), vec![Action::ReleaseAll]);
@@ -941,7 +941,7 @@ mod tests {
         assert_eq!(session.stats().watchdog_releases, 1);
 
         session.tick(started + Duration::from_millis(900));
-        assert!(session.take_actions().is_empty());
+        assert_eq!(session.take_actions(), []);
     }
 
     #[test]
@@ -967,7 +967,7 @@ mod tests {
         // The heartbeat kept the session alive, but only a sample may clear
         // the watchdog release.
         session.tick(started + Duration::from_millis(1_800));
-        assert!(session.take_actions().is_empty());
+        assert_eq!(session.take_actions(), []);
         assert!(session.is_streaming());
         assert!(session.is_released());
         assert_eq!(session.stats().watchdog_releases, 1);

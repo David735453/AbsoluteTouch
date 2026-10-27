@@ -102,7 +102,7 @@ mod tests {
         injector.inject(&sample()).expect("inject");
 
         assert_eq!(injector.take().len(), 1);
-        assert!(injector.events().is_empty());
+        assert_eq!(injector.events(), []);
     }
 
     #[test]

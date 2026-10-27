@@ -84,7 +84,11 @@
 		/// Send one datagram.
 		public func send(_ datagram: [UInt8]) async throws {
 			let data = Data(datagram)
-			try await withCheckedThrowingContinuation { continuation in
+			// Spell out the continuation type: the result is discarded, so leaving
+			// it to inference lets Swift 6.4 crash with "failed to produce
+			// diagnostic for expression" instead of choosing `Void`.
+			try await withCheckedThrowingContinuation {
+				(continuation: CheckedContinuation<Void, any Error>) in
 				connection.send(
 					content: data,
 					completion: .contentProcessed { error in
