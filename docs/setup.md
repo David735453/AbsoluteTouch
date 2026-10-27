@@ -16,8 +16,8 @@ backends (M5, M6) are planned.
 | Linux backend | Write access to `/dev/uinput`; read access to `/dev/input/event*` for `evtest` |
 | Swift core tests | Swift 6.4 or newer (Linux or macOS) |
 
-The core package declares `swift-tools-version: 6.4`; CI runs it in the
-`swift:6.4.1` container. The iOS app's `SWIFT_VERSION: "6.0"` is the Swift
+The core package declares `swift-tools-version: 6.4`; CI installs Swift 6.4.1
+with `SwiftyLab/setup-swift`. The iOS app's `SWIFT_VERSION: "6.0"` is the Swift
 language mode, not the compiler version — Xcode 27 provides the compiler and the
 iOS 27 SDK while the deployment target stays at 17.0.
 

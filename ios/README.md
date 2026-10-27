@@ -49,7 +49,7 @@ Three version numbers are deliberately different:
 
 | Setting | Value | Meaning |
 | --- | --- | --- |
-| `swift-tools-version` in `AbsoluteTouchCore/Package.swift` | 6.4 | Minimum Swift compiler for the package; CI uses the `swift:6.4.1` container |
+| `swift-tools-version` in `AbsoluteTouchCore/Package.swift` | 6.4 | Minimum Swift compiler for the package; CI installs 6.4.1 with `SwiftyLab/setup-swift` |
 | `SWIFT_VERSION` in `project.yml` | 6.0 | Swift **language mode** (strict concurrency), not the compiler version |
 | `deploymentTarget` in `project.yml` | 17.0 | Minimum iPadOS; the app is built against the iOS 27 SDK from Xcode 27 |
 

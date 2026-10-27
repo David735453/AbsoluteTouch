@@ -61,16 +61,11 @@ jobs:
       - name: Rust formatting
         working-directory: desktop
         run: cargo fmt --all -- --check
+      - uses: SwiftyLab/setup-swift@latest
+        with:
+          swift-version: "6.4.1"
       - name: Swift formatting
-        run: |
-          set -euo pipefail
-          docker run --rm \
-            --user "$(id -u):$(id -g)" \
-            -e HOME=/tmp \
-            -v "$PWD:/work" \
-            -w /work \
-            swift:6.4.1 \
-            swift format lint --strict --recursive ios/AbsoluteTouchCore ios/App
+        run: swift format lint --strict --recursive ios/AbsoluteTouchCore ios/App
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "4.0"
@@ -121,36 +116,15 @@ jobs:
       - name: Doctor
         working-directory: desktop
         run: cargo run --quiet -- doctor
+      - uses: SwiftyLab/setup-swift@latest
+        with:
+          swift-version: "6.4.1"
       - name: Swift version
-        run: |
-          set -euo pipefail
-          docker run --rm \
-            --user "$(id -u):$(id -g)" \
-            -e HOME=/tmp \
-            -v "$PWD:/work" \
-            -w /work \
-            swift:6.4.1 \
-            swift --version
+        run: swift --version
       - name: Swift formatting
-        run: |
-          set -euo pipefail
-          docker run --rm \
-            --user "$(id -u):$(id -g)" \
-            -e HOME=/tmp \
-            -v "$PWD:/work" \
-            -w /work \
-            swift:6.4.1 \
-            swift format lint --strict --recursive ios/AbsoluteTouchCore ios/App
+        run: swift format lint --strict --recursive ios/AbsoluteTouchCore ios/App
       - name: Swift core tests
-        run: |
-          set -euo pipefail
-          docker run --rm \
-            --user "$(id -u):$(id -g)" \
-            -e HOME=/tmp \
-            -v "$PWD:/work" \
-            -w /work \
-            swift:6.4.1 \
-            swift test --package-path ios/AbsoluteTouchCore
+        run: swift test --package-path ios/AbsoluteTouchCore
 
   linux-arm:
     name: Linux ARM64
