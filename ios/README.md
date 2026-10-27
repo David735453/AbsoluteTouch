@@ -73,7 +73,61 @@ for the simulator, and real behavior is checked with the manual M3 checklist in
 
 ## TestFlight
 
-`fastlane/Fastfile` archives the app and optionally uploads it to TestFlight.
-The `testflight` GitHub environment supplies `ASC_KEY_ID`, `ASC_ISSUER_ID`,
-`ASC_KEY_P8_BASE64`, and `APPLE_TEAM_ID`. Uploads only run from the manual
-`TestFlight` workflow.
+`fastlane/Fastfile` archives the app and uploads it to TestFlight when the
+`testflight` toggle is enabled in the `Release` workflow. The `testflight`
+GitHub environment supplies `ASC_KEY_ID`, `ASC_ISSUER_ID`,
+`ASC_KEY_P8_BASE64`, and `APPLE_TEAM_ID`. The same workflow can publish a
+GitHub release of the desktop binaries; the signed IPA stays a TestFlight
+artifact and is not attached to that release.
+
+### First TestFlight build
+
+Do these once, in order:
+
+1. **Apple Developer Program** membership is active. Note the ten-character
+   team ID on the Membership details page.
+2. **Register the App ID** `org.dstudios.absolutetouch` in Certificates,
+   Identifiers & Profiles → Identifiers → App IDs. No extra capabilities are
+   needed for M3.
+3. **Accept the agreements** in App Store Connect → Business → Agreements, Tax,
+   and Banking. Uploads fail while the free-apps agreement is inactive.
+4. **Create the app record** in App Store Connect → Apps → + → New App:
+   platform iOS, a unique App Store name (for example `AbsoluteTouch`), the
+   bundle ID above, and a unique internal SKU (for example
+   `absolutetouch-ios`). Internal TestFlight does not need screenshots or App
+   Store review.
+5. **Create a team API key** in Users and Access → Integrations → App Store
+   Connect API → Team Keys. Use the **Admin** role: the archive creates
+   cloud-managed distribution certificates, and an App Manager key can fail
+   with `Cloud signing permission error`. Record the Key ID and Issuer ID and
+   download the `.p8` file once; it cannot be downloaded again.
+6. **Add the GitHub secrets** to the `testflight` environment:
+
+   ```sh
+   gh secret set ASC_KEY_ID --env testflight
+   gh secret set ASC_ISSUER_ID --env testflight
+   gh secret set APPLE_TEAM_ID --env testflight
+   base64 < AuthKey_XXXXXXXXXX.p8 | tr -d '\n' \
+     | gh secret set ASC_KEY_P8_BASE64 --env testflight
+   ```
+
+7. **Run the workflow** and watch it:
+
+   ```sh
+   gh workflow run release.yml \
+     -f version=0.1.0 -f testflight=true -f gh_release=false -f linux=false
+   gh run watch
+   ```
+
+The archive sets `MARKETING_VERSION` from `version` and
+`CURRENT_PROJECT_VERSION` from `github.run_number`. After the upload, the build
+appears under TestFlight once Apple finishes processing (usually 5–30 minutes).
+The app is iPad-only, so use an iPad in the TestFlight app. `Info.plist`
+already declares `ITSAppUsesNonExemptEncryption = false`, so no export
+compliance prompt is expected.
+
+Common first-run failures: `Cloud signing permission error` means the API key
+is not Admin; `No profiles for 'org.dstudios.absolutetouch'` means the App ID,
+team ID, or key role is wrong; a duplicate name or SKU is reported when the app
+record already exists. A build number that was already uploaded is rejected, so
+use a new workflow run rather than re-running an old one.

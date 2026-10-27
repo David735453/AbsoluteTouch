@@ -21,7 +21,7 @@ the validated reference.
 | iPad app + Wi-Fi sender   | Implemented, needs hardware validation (M3) |
 | USB streaming             | Planned (M4)                   |
 | Windows / macOS injection | Planned (M5/M6)                |
-| TestFlight / releases     | Workflows ready (manual)       |
+| TestFlight / releases     | Workflow ready (manual)        |
 
 ## Hardware note
 
@@ -87,7 +87,7 @@ desktop/                Rust CLI and desktop library
 ios/AbsoluteTouchCore/  UI-free Swift logic with tests
 ios/App/                SwiftUI pairing shell and UIKit canvas
 docs/                   Architecture, protocol, setup, testing, ADRs
-.github/workflows/      Manual, per-platform CI
+.github/workflows/      Push/nightly CI and manual release/TestFlight
 ```
 
 ## Documentation
@@ -100,15 +100,17 @@ docs/                   Architecture, protocol, setup, testing, ADRs
 
 ## CI
 
-All workflows are manual and expose per-platform toggles:
+`ci.yml` runs on every push to `main`, nightly, and manually. `release.yml` is
+manual:
 
-- `.github/workflows/ci.yml` — a format/lint job (vectors, rustfmt, swift-format,
-  Ruby and config syntax) plus Linux x86_64/ARM64, Windows x64/ARM64, macOS
-  iOS build, Swift core tests.
-- `.github/workflows/release.yml` — build selected platform binaries and
-  publish a GitHub release.
-- `.github/workflows/testflight.yml` — archive and optionally upload to
-  internal TestFlight.
+- `.github/workflows/ci.yml` — on push: a format/lint job (vectors, rustfmt,
+  swift-format, Ruby and config syntax), Linux x86_64, and macOS with Swift
+  core tests and the iOS app build. The nightly run also covers Linux ARM64 and
+  Windows x64/ARM64.
+- `.github/workflows/release.yml` — build the selected desktop binaries, publish
+  a GitHub release, and optionally archive and upload the signed iOS app to
+  TestFlight. The TestFlight toggle and the GitHub release toggle are
+  independent.
 
 ## Safety
 

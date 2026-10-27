@@ -374,7 +374,7 @@ select it where the game or desktop asks for a tablet.
 | Local network prompt never appears | Reinstall or reset the app; check Settings → Privacy → Local Network |
 | USB device not listed | Trust the iPad, check `usbmuxd`, try `idevice_id -l` |
 | iOS build fails on signing | Set the development team; CI builds use `CODE_SIGNING_ALLOWED=NO` |
-| TestFlight upload fails | Check the `testflight` environment secrets and API key permissions |
+| TestFlight upload fails | Check the `testflight` environment secrets and API key permissions; run the TestFlight toggle from the Release workflow |
 
 When reporting a bug, include the OS, backend, transport, and a recorded trace.
 Never include tokens or personal network details.

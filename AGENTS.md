@@ -97,9 +97,9 @@ make hooks
 make doctor
 ```
 
-All GitHub Actions workflows are **manual** (`workflow_dispatch`). Each
-platform has a boolean input; there are no push, pull-request, or schedule
-triggers.
+`ci.yml` runs on every push to `main`, nightly (`17 4 * * *`), and on manual
+dispatch. Pushes run Linux x86_64, macOS/iOS, and lint; the nightly also covers
+Linux ARM64 and both Windows targets. `release.yml` stays manual.
 
 ## Protocol invariants
 
@@ -131,14 +131,16 @@ triggers.
 
 ## CI / secrets
 
-- Workflows: `.github/workflows/ci.yml`, `release.yml`, `testflight.yml`.
+- Workflows: `.github/workflows/ci.yml`, `release.yml`.
+- `release.yml` carries the TestFlight toggle; there is no separate workflow.
 - TestFlight secrets live in the `testflight` GitHub environment:
   `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8_BASE64`, `APPLE_TEAM_ID`.
 - Never run TestFlight or release jobs on pull requests.
 - Never use `pull_request_target`.
 - Release jobs get `contents: write`; all other jobs are read-only.
 - GitHub runner labels: `ubuntu-26.04`, `ubuntu-26.04-arm`, `windows-latest`,
-  `windows-11-arm`, `macos-latest` with Xcode 27.
+  `windows-11-arm`, `macos-latest`, and `xcode-27` for iOS jobs. Xcode is
+  selected by `maxim-lobanov/setup-xcode@v1` with `xcode-version: latest`.
 
 ## Repository map
 
@@ -151,7 +153,7 @@ ios/AbsoluteTouchCore/ Swift package with UI-free logic and tests
 ios/App/               SwiftUI pairing shell and UIKit canvas
 ios/project.yml        XcodeGen project definition
 docs/                  architecture, protocol, setup, testing, ADRs
-.github/workflows/     manual, per-platform CI
+.github/workflows/     push/nightly CI and manual release/TestFlight
 .githooks/             tracked pre-commit hook (enable with make hooks)
 ```
 

@@ -110,39 +110,173 @@ reorder or repurpose a field silently.
 
 ## CI
 
-All workflows are manual (`workflow_dispatch`). There are no push,
-pull-request, or schedule triggers, and `pull_request_target` is forbidden.
-
 ### `ci.yml`
 
-| Input | Runner | What runs |
-| --- | --- | --- |
-| `lint` | `ubuntu-26.04` | Golden vectors, `cargo fmt --check`, `swift format lint --strict` (in `swift:6.4.1`), `ruby -c`, YAML/JSON/plist parse checks |
-| `linux` | `ubuntu-26.04` | Vector check, Rust fmt/clippy/tests, doctor, Swift format check and Swift core tests in the `swift:6.4.1` container |
-| `linux_arm` | `ubuntu-26.04-arm` | Vector check, Rust fmt/clippy/tests |
-| `windows` | `windows-latest` | Rust fmt/clippy/tests (beta) |
-| `windows_arm` | `windows-11-arm` | Rust fmt/clippy/tests (beta) |
-| `macos` | `macos-latest` | Xcode 27, Rust tests, Swift tests, `swift format lint --strict`, SwiftLint, XcodeGen, unsigned simulator build |
+Runs automatically on every push to `main` and nightly at 04:17 UTC, and can be
+started with `workflow_dispatch`. Pull requests do not trigger it.
 
-Trigger from the Actions UI or with the CLI:
+| Job | Runner | Push | Nightly | Manual input |
+| --- | --- | --- | --- | --- |
+| `lint` | `ubuntu-26.04` | yes | yes | `lint` |
+| `linux` | `ubuntu-26.04` | yes | yes | `linux` |
+| `macos` | `xcode-27` | yes | yes | `macos` |
+| `linux-arm` | `ubuntu-26.04-arm` | no | yes | `linux_arm` |
+| `windows` | `windows-latest` | no | yes | `windows` |
+| `windows-arm` | `windows-11-arm` | no | yes | `windows_arm` |
+
+The push run is the fast gate: lint, Linux x86_64, and macOS/iOS. The nightly
+adds the ARM64 and Windows beta targets so they do not rot. A manual dispatch
+uses the per-platform booleans and defaults to `linux`, `macos`, and `lint`.
+GitHub disables scheduled workflows after 60 days of repository inactivity;
+re-enable the schedule from the Actions tab if the nightly stops running.
+
+| Job | What runs |
+| --- | --- |
+| `lint` | Golden vectors, `cargo fmt --check`, `swift format lint --strict` (in `swift:6.4.1`), `ruby -c`, YAML/JSON/plist parse checks |
+| `linux` | Vector check, Rust fmt/clippy/tests, doctor, Swift format check and Swift core tests in the `swift:6.4.1` container |
+| `linux-arm` | Vector check, Rust fmt/clippy/tests |
+| `windows`, `windows-arm` | Rust fmt/clippy/tests (beta) |
+| `macos` | Rust tests, Swift core tests, `swift format lint --strict`, SwiftLint, XcodeGen, unsigned simulator build |
+
+iOS jobs run on the `xcode-27` runner image and select Xcode with
+`maxim-lobanov/setup-xcode@v1` using `xcode-version: latest`, so a new
+27.x point release on the image is picked up without editing the workflow.
+`latest` may select a release candidate; the "Show toolchain" step prints the
+exact `xcodebuild` and `swift` versions. Pushes that touch only docs still run
+the same jobs; the matrix is small enough that this is not worth path filters.
 
 ```sh
-gh workflow run ci.yml -f linux=true -f macos=true -f windows=false
+gh workflow run ci.yml
+gh workflow run ci.yml -f windows=true -f macos=false
 ```
 
 ### `release.yml`
 
-Manual, versioned build. Inputs select platforms and whether the GitHub release
-is a draft. Linux x86_64/ARM64, Windows x64/ARM64, and macOS ARM64 are built
-natively on their runners. Only the publish job has `contents: write`; every
-other job is read-only.
+Manual and versioned. There is no separate TestFlight workflow: the TestFlight
+job is one of the toggles.
 
-### `testflight.yml`
+| Input | Default | Effect |
+| --- | --- | --- |
+| `version` | required | Tag and file names, and the iOS `MARKETING_VERSION` |
+| `testflight` | `false` | Signed archive, upload to TestFlight, keep the IPA artifact for 14 days |
+| `gh_release` | `true` | Publish a GitHub release with the selected desktop binaries |
+| `draft` | `true` | Create the GitHub release as a draft |
+| `linux` | `true` | Linux x86_64 tarball |
+| `linux_arm`, `windows`, `windows_arm`, `macos` | `false` | Beta platform builds |
 
-Manual archive and optional upload. It runs in the `testflight` environment and
-requires `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8_BASE64`, and
-`APPLE_TEAM_ID`. Upload is off by default; set the `upload` input to build
-first and upload only when intended. The workflow never runs for pull requests.
+Validation rejects a run that selects neither TestFlight nor any platform.
+The TestFlight job runs in the `testflight` environment and needs the four
+secrets below. The GitHub release job runs with `contents: write`; every other
+job is read-only. The signed iOS IPA is deliberately removed before publishing
+the GitHub release, because it is a TestFlight artifact, not a desktop
+download. If any selected job fails, the release is not published.
+
+```sh
+# Desktop release only
+gh workflow run release.yml -f version=0.1.0
+
+# TestFlight only, no GitHub release and no desktop binaries
+gh workflow run release.yml \
+  -f version=0.1.0 -f testflight=true -f gh_release=false -f linux=false
+
+# Both
+gh workflow run release.yml -f version=0.1.0 -f testflight=true
+```
+
+### First-time setup
+
+The workflow files must be on the default branch before push, schedule, or
+`workflow_dispatch` can use them. Actions are enabled by default on a public
+repository; `ci.yml` needs no repository-level secret.
+
+The `ci.yml` macOS job and the `release.yml` TestFlight job are the only places
+the iOS app target is compiled. Both run on the `xcode-27` image; `setup-xcode`
+fails the step when no matching Xcode is available instead of silently building
+with an older toolchain. Everything else in `ci.yml` runs on standard
+GitHub-hosted runners.
+
+The `testflight` job needs a paid Apple Developer Program membership and
+one-time App Store Connect setup:
+
+1. Create an app record with bundle ID `org.dstudios.absolutetouch`.
+2. Create a **team** App Store Connect API key with the **Admin** role
+   (Users and Access → Integrations → App Store Connect API). The Account
+   Holder may need to request API access first. Download the `.p8` file once;
+   Apple does not let you download it again. Admin is required because the
+   archive creates cloud-managed distribution certificates; an App Manager key
+   can upload but may fail with `Cloud signing permission error`.
+3. Create the `testflight` environment and store the four secrets in it:
+
+```sh
+gh api -X PUT "repos/{owner}/{repo}/environments/testflight"
+gh secret set ASC_KEY_ID --env testflight
+gh secret set ASC_ISSUER_ID --env testflight
+gh secret set APPLE_TEAM_ID --env testflight
+base64 < AuthKey_XXXXXXXXXX.p8 | tr -d '\n' \
+  | gh secret set ASC_KEY_P8_BASE64 --env testflight
+```
+
+`APPLE_TEAM_ID` is the ten-character team identifier. Never commit the `.p8`
+file; it is already covered by `.gitignore`. Signing uses automatic signing
+with `-allowProvisioningUpdates`, so the API key needs access to the team's
+certificates and provisioning profiles. The build number is the workflow run
+number and the marketing version is the `version` input.
+
+`testflight` on the job is the **environment name**, not an expression context;
+there is no `testflight.*` context. GitHub's Actions language server (used by
+VS Code and the web editor) validates the name against the environments that
+already exist in the repository. When the environment is missing, the editor
+reports `Value 'testflight' is not valid` and lists the expression contexts
+allowed in that field. The workflow itself would create the environment on
+first use, but it is cleaner to create it first with the `gh api -X PUT`
+command above (or **Settings → Environments**) and reload the editor. Secrets
+are still read with `${{ secrets.NAME }}` after the job declares
+`environment:`.
+
+### Caches
+
+The repository has a 10 GB cache budget on the free plan, with
+least-recently-used eviction and 7-day expiry for entries that are not
+restored. The budget is shared by every branch, but entries are branch-scoped:
+caches saved on `main` are available to `main` runs and to branches created
+from it, not the other way round. Every cache here is bounded and keyed on
+inputs that change rarely.
+
+| Cache | Path | Key inputs | Typical size | Refresh |
+| --- | --- | --- | --- | --- |
+| Rust build (`Swatinem/rust-cache@v2`) | `desktop/target`, Cargo registry | toolchain, `Cargo.lock`, runner | 300–800 MB per platform | managed by the action |
+| Homebrew downloads | `~/Library/Caches/Homebrew/downloads` | OS, architecture, hash of `ci.yml` and `release.yml` | 20–60 MB | edit either workflow |
+| SwiftPM build | `ios/AbsoluteTouchCore/.build` | OS, architecture, `swift-6.4`, `v1`, hash of `Package.swift` | 20–50 MB | bump `v1` in `ci.yml` |
+
+`actions/cache` only writes a cache when the exact key is missing, so the
+SwiftPM entry is a snapshot: later runs restore it, recompile whatever changed,
+and keep the old key. Bump the `v1` segment in `ci.yml` when it needs to be
+rebuilt from scratch, or delete the entry.
+
+Deliberately not cached:
+
+- Xcode `DerivedData`: hundreds of MB to several GB, stale after any project or
+  SDK change, and the app is small enough that a clean build is cheaper than a
+  wrong one. `ONLY_ACTIVE_ARCH=YES` and `COMPILER_INDEX_STORE_ENABLE=NO` keep
+  the clean simulator build short, and the TestFlight archive is Release-only.
+- The `swift:6.4.1` Docker image: a GitHub cache entry is the wrong mechanism,
+  and the runner pulls it in well under a minute.
+- Bundler gems: `ios/Gemfile` has no lockfile, so the resolved set changes
+  without a cache-key change. Fastlane is installed per TestFlight run, which is
+  infrequent.
+
+Inspect or prune caches after a few runs:
+
+```sh
+gh cache list
+gh cache delete <key>
+gh cache delete --all
+```
+
+If the total approaches 10 GB, the oldest entries are evicted automatically,
+but prefer deleting stale platform caches explicitly: most of the budget is the
+per-platform Rust target directories, and a platform that is not being tested
+does not need its cache kept warm.
 
 ## Recording and replay
 

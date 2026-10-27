@@ -1,6 +1,11 @@
 name: CI
 
 on:
+  push:
+    branches: [main]
+  schedule:
+    # Nightly full matrix, including the beta platforms, at an off-peak minute.
+    - cron: "17 4 * * *"
   workflow_dispatch:
     inputs:
       linux:
@@ -32,14 +37,20 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: false
+  # Keep the nightly and push runs from cancelling each other; cancel stale
+  # runs of the same event and ref (for example an older push to main).
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
   lint:
     name: Format and lint
-    if: ${{ inputs.lint }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.lint }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -76,8 +87,9 @@ jobs:
 
   linux:
     name: Linux x86_64
-    if: ${{ inputs.linux }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.linux }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -133,8 +145,9 @@ jobs:
 
   linux-arm:
     name: Linux ARM64
-    if: ${{ inputs.linux_arm }}
+    if: ${{ inputs.linux_arm || github.event_name == 'schedule' }}
     runs-on: ubuntu-26.04-arm
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -157,8 +170,9 @@ jobs:
 
   windows:
     name: Windows x64
-    if: ${{ inputs.windows }}
+    if: ${{ inputs.windows || github.event_name == 'schedule' }}
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -179,8 +193,9 @@ jobs:
 
   windows-arm:
     name: Windows ARM64
-    if: ${{ inputs.windows_arm }}
+    if: ${{ inputs.windows_arm || github.event_name == 'schedule' }}
     runs-on: windows-11-arm
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -201,26 +216,43 @@ jobs:
 
   macos:
     name: macOS and iOS
-    if: ${{ inputs.macos }}
-    runs-on: macos-latest
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.macos }}
+    runs-on: xcode-27
+    timeout-minutes: 45
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
     steps:
       - uses: actions/checkout@v4
-      - name: Select Xcode 27
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest
+      - name: Show toolchain
         run: |
           set -euo pipefail
-          for candidate in /Applications/Xcode_27*.app; do
-            if [ -d "$candidate" ]; then
-              sudo xcode-select -s "$candidate"
-              break
-            fi
-          done
           xcodebuild -version
+          swift --version
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop
+      - name: Cache Homebrew downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew/downloads
+          key: homebrew-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/ci.yml', '.github/workflows/release.yml') }}
+          restore-keys: |
+            homebrew-${{ runner.os }}-${{ runner.arch }}-
+      - name: Cache SwiftPM build
+        uses: actions/cache@v4
+        with:
+          path: ios/AbsoluteTouchCore/.build
+          key: swiftpm-${{ runner.os }}-${{ runner.arch }}-swift-6.4-v1-${{ hashFiles('ios/AbsoluteTouchCore/Package.swift') }}
+          restore-keys: |
+            swiftpm-${{ runner.os }}-${{ runner.arch }}-swift-6.4-v1-
       - name: Rust tests
         working-directory: desktop
         run: cargo test --all-targets
@@ -229,7 +261,13 @@ jobs:
       - name: Swift formatting
         run: swift format lint --strict --recursive ios/AbsoluteTouchCore ios/App
       - name: Install SwiftLint
-        run: brew install swiftlint
+        run: |
+          set -euo pipefail
+          if command -v swiftlint >/dev/null 2>&1; then
+            swiftlint version
+          else
+            brew install swiftlint
+          fi
       - name: SwiftLint
         run: swiftlint lint --quiet --strict
       - name: Ruby syntax
@@ -238,7 +276,13 @@ jobs:
           ruby -c ios/Gemfile
           ruby -c ios/fastlane/Fastfile
       - name: Install XcodeGen
-        run: brew install xcodegen
+        run: |
+          set -euo pipefail
+          if command -v xcodegen >/dev/null 2>&1; then
+            xcodegen --version
+          else
+            brew install xcodegen
+          fi
       - name: Generate Xcode project
         run: xcodegen generate --spec ios/project.yml
       - name: Build iOS app
@@ -251,4 +295,6 @@ jobs:
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath ios/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
+            ONLY_ACTIVE_ARCH=YES \
+            COMPILER_INDEX_STORE_ENABLE=NO \
             build

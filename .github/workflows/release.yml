@@ -4,9 +4,22 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version without the v prefix, for example 0.1.0"
+        description: "Version without the v prefix, for example x.y.z"
         required: true
         type: string
+        default: "0.0.1"
+      testflight:
+        description: "Archive a signed iOS build and upload it to TestFlight"
+        type: boolean
+        default: false
+      gh_release:
+        description: "Publish a GitHub release with the selected desktop binaries"
+        type: boolean
+        default: true
+      draft:
+        description: "Create the GitHub release as a draft"
+        type: boolean
+        default: true
       linux:
         description: "Build Linux x86_64"
         type: boolean
@@ -27,10 +40,6 @@ on:
         description: "Build macOS ARM64 (beta)"
         type: boolean
         default: false
-      draft:
-        description: "Create the GitHub release as a draft"
-        type: boolean
-        default: true
 
 permissions:
   contents: read
@@ -39,10 +48,14 @@ concurrency:
   group: release-${{ inputs.version }}
   cancel-in-progress: false
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   validate:
-    name: Validate version
+    name: Validate inputs
     runs-on: ubuntu-26.04
+    timeout-minutes: 5
     steps:
       - name: Check version format
         env:
@@ -53,12 +66,32 @@ jobs:
             echo "::error::version must look like 0.1.0"
             exit 1
           fi
+      - name: Require at least one deliverable
+        env:
+          TESTFLIGHT: ${{ inputs.testflight }}
+          LINUX: ${{ inputs.linux }}
+          LINUX_ARM: ${{ inputs.linux_arm }}
+          WINDOWS: ${{ inputs.windows }}
+          WINDOWS_ARM: ${{ inputs.windows_arm }}
+          MACOS: ${{ inputs.macos }}
+        run: |
+          set -euo pipefail
+          if [ "$TESTFLIGHT" != "true" ] \
+            && [ "$LINUX" != "true" ] \
+            && [ "$LINUX_ARM" != "true" ] \
+            && [ "$WINDOWS" != "true" ] \
+            && [ "$WINDOWS_ARM" != "true" ] \
+            && [ "$MACOS" != "true" ]; then
+            echo "::error::select TestFlight or at least one platform"
+            exit 1
+          fi
 
   linux-x86_64:
     name: Linux x86_64
     needs: validate
     if: ${{ inputs.linux }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -87,6 +120,7 @@ jobs:
     needs: validate
     if: ${{ inputs.linux_arm }}
     runs-on: ubuntu-26.04-arm
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -115,6 +149,7 @@ jobs:
     needs: validate
     if: ${{ inputs.windows }}
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -144,6 +179,7 @@ jobs:
     needs: validate
     if: ${{ inputs.windows_arm }}
     runs-on: windows-11-arm
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -173,6 +209,7 @@ jobs:
     needs: validate
     if: ${{ inputs.macos }}
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -196,6 +233,104 @@ jobs:
           path: dist/*.tar.gz
           if-no-files-found: error
 
+  testflight:
+    name: iOS TestFlight
+    needs: validate
+    if: ${{ inputs.testflight }}
+    runs-on: xcode-27
+    timeout-minutes: 60
+    environment:
+      name: testflight
+    permissions:
+      contents: read
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest
+
+      - name: Show toolchain
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          swift --version
+
+      - name: Cache Homebrew downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew/downloads
+          key: homebrew-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/ci.yml', '.github/workflows/release.yml') }}
+          restore-keys: |
+            homebrew-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install XcodeGen
+        run: |
+          set -euo pipefail
+          if command -v xcodegen >/dev/null 2>&1; then
+            xcodegen --version
+          else
+            brew install xcodegen
+          fi
+
+      - name: Generate Xcode project
+        run: xcodegen generate --spec ios/project.yml
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+
+      - name: Install Fastlane
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          bundle config set --local path vendor/bundle
+          bundle install --jobs 4
+
+      - name: Decode App Store Connect key
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          for name in ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8_BASE64 APPLE_TEAM_ID; do
+            if [ -z "${!name}" ]; then
+              echo "::error::missing $name in the testflight environment"
+              exit 1
+            fi
+          done
+          printf '%s' "$ASC_KEY_P8_BASE64" \
+            | tr -d '\r\n' \
+            | openssl base64 -d -A -out "$RUNNER_TEMP/AuthKey.p8"
+          chmod 600 "$RUNNER_TEMP/AuthKey.p8"
+
+      - name: Archive and upload
+        working-directory: ios
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          MARKETING_VERSION: ${{ inputs.version }}
+          FASTLANE_SKIP_UPDATE_CHECK: "true"
+          FASTLANE_HIDE_CHANGELOG: "true"
+        run: bundle exec fastlane ios beta upload:true
+
+      - name: Upload signed IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-${{ inputs.version }}-build-${{ github.run_number }}
+          path: ios/build/export/*.ipa
+          if-no-files-found: error
+          retention-days: 14
+
   publish:
     name: Publish GitHub release
     needs:
@@ -205,8 +340,10 @@ jobs:
       - windows-x86_64
       - windows-aarch64
       - macos-aarch64
-    if: ${{ always() && !failure() && !cancelled() && (inputs.linux || inputs.linux_arm || inputs.windows || inputs.windows_arm || inputs.macos) }}
+      - testflight
+    if: ${{ always() && !failure() && !cancelled() && inputs.gh_release && (inputs.linux || inputs.linux_arm || inputs.windows || inputs.windows_arm || inputs.macos) }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
@@ -214,6 +351,11 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - name: Keep desktop binaries only
+        run: |
+          set -euo pipefail
+          # The signed iOS IPA is a TestFlight artifact, not a desktop download.
+          find dist -maxdepth 1 -name '*.ipa' -delete
       - name: List release files
         run: ls -l dist
       - uses: softprops/action-gh-release@v2
