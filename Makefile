@@ -40,13 +40,20 @@ toolchain:
 # `check`, `test`, and `lint` enable the hook so a clone that only runs the
 # project's own commands still gets the staged-file checks on every commit.
 test: hooks
-test: test-rust test-swift
+test: test-rust test-swift test-ruby
 
 test-rust:
 	cd desktop && cargo test --all-targets
 
 test-swift:
 	swift test --package-path ios/AbsoluteTouchCore
+
+test-ruby:
+	@if tools/ruby.sh -v >/dev/null 2>&1; then \
+		tools/ruby.sh ios/fastlane/build_number_test.rb; \
+	else \
+		printf 'skip  ruby tests (no ruby on PATH or in mise/asdf/rbenv shims; CI checks it)\n'; \
+	fi
 
 lint: hooks
 	cd desktop && cargo clippy --all-targets -- -D warnings
@@ -71,20 +78,13 @@ lint-swiftlint:
 	fi
 
 lint-ruby:
-	@ruby=$$(command -v ruby 2>/dev/null); \
-	if [ -z "$$ruby" ]; then \
-		for candidate in \
-			"$${MISE_DATA_DIR:-$$HOME/.local/share/mise}/shims/ruby" \
-			"$$HOME/.asdf/shims/ruby" \
-			"$$HOME/.rbenv/shims/ruby"; do \
-			[ -x "$$candidate" ] && ruby=$$candidate && break; \
-		done; \
-	fi; \
-	if [ -z "$$ruby" ]; then \
-		printf 'skip  ruby syntax (no ruby on PATH or in mise/asdf/rbenv shims; CI checks it)\n'; \
+	@if tools/ruby.sh -v >/dev/null 2>&1; then \
+		tools/ruby.sh -c ios/Gemfile; \
+		tools/ruby.sh -c ios/fastlane/Fastfile; \
+		tools/ruby.sh -c ios/fastlane/build_number.rb; \
+		tools/ruby.sh -c ios/fastlane/build_number_test.rb; \
 	else \
-		"$$ruby" -c ios/Gemfile; \
-		"$$ruby" -c ios/fastlane/Fastfile; \
+		printf 'skip  ruby syntax (no ruby on PATH or in mise/asdf/rbenv shims; CI checks it)\n'; \
 	fi
 
 check: hooks

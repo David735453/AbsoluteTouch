@@ -119,15 +119,20 @@ Do these once, in order:
    gh run watch
    ```
 
-The archive sets `MARKETING_VERSION` from `version` and
-`CURRENT_PROJECT_VERSION` from `github.run_number`. After the upload, the build
-appears under TestFlight once Apple finishes processing (usually 5–30 minutes).
-The app is iPad-only, so use an iPad in the TestFlight app. `Info.plist`
-already declares `ITSAppUsesNonExemptEncryption = false`, so no export
-compliance prompt is expected.
+The archive sets `MARKETING_VERSION` from `version` and derives
+`CURRENT_PROJECT_VERSION` from two inputs: the workflow run number, and one
+past the newest build App Store Connect already has for that version. The
+higher of the two wins, so an upload can never reuse a number even when a run
+is repeated or the workflow is recreated. After the upload, the build appears
+under TestFlight once Apple finishes processing (usually 5–30 minutes). The app
+is iPad-only, so use an iPad in the TestFlight app. `Info.plist` already
+declares `ITSAppUsesNonExemptEncryption = false`, so no export compliance
+prompt is expected.
 
 Common first-run failures: `Cloud signing permission error` means the API key
 is not Admin; `No profiles for 'org.dstudios.absolutetouch'` means the App ID,
 team ID, or key role is wrong; a duplicate name or SKU is reported when the app
-record already exists. A build number that was already uploaded is rejected, so
-use a new workflow run rather than re-running an old one.
+record already exists. If App Store Connect cannot be reached to read the
+newest build, the lane logs a warning and falls back to the run number, which
+is the pre-2026 behavior: a re-run of that same run is then rejected as a
+duplicate and needs a fresh dispatch.

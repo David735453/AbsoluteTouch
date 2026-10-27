@@ -24,6 +24,7 @@ compile.
 | Swift controller tests | Fake datagram transport, state stream, failure, `BYE`                                         | `ios/AbsoluteTouchCore/Tests/AbsoluteTouchCoreTests/SessionControllerTests.swift` |
 | Swift mailbox tests    | Bounded buffer, drop-oldest, one wakeup per burst, coalescing keeps state changes             | `ios/AbsoluteTouchCore/Tests/AbsoluteTouchCoreTests/SampleMailboxTests.swift`     |
 | Swift pointer tests    | Coordinate/angle normalization, phase flags, token parsing                                    | `PointerSampleTests.swift`, `PairingTokenTests.swift`                             |
+| Build number tests     | Higher of the run number and the newest TestFlight build; fallback when unreadable            | `ios/fastlane/build_number_test.rb`                                               |
 | Manual hardware tests  | Real Pencil, real backend, real OS                                                            | Checklist below                                                                   |
 
 ## Commands
@@ -323,8 +324,12 @@ base64 < AuthKey_XXXXXXXXXX.p8 | tr -d '\n' \
 `APPLE_TEAM_ID` is the ten-character team identifier. Never commit the `.p8`
 file; it is already covered by `.gitignore`. Signing uses automatic signing
 with `-allowProvisioningUpdates`, so the API key needs access to the team's
-certificates and provisioning profiles. The build number is the workflow run
-number and the marketing version is the `version` input.
+certificates and provisioning profiles. The marketing version is the `version`
+input; the build number is the higher of the workflow run number and one past
+the newest TestFlight build for that version, so repeated or recreated runs
+cannot reuse a number. When the fastlane lane cannot read TestFlight it warns
+and uses the run number alone, and a duplicate upload is then rejected by App
+Store Connect.
 
 `testflight` on the job is the **environment name**, not an expression context;
 there is no `testflight.*` context. GitHub's Actions language server (used by

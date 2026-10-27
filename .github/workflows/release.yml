@@ -311,6 +311,7 @@ jobs:
           chmod 600 "$RUNNER_TEMP/AuthKey.p8"
 
       - name: Archive and upload
+        id: archive
         working-directory: ios
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
@@ -326,7 +327,7 @@ jobs:
       - name: Upload signed IPA
         uses: actions/upload-artifact@v7
         with:
-          name: ios-${{ inputs.version }}-build-${{ github.run_number }}
+          name: ios-${{ inputs.version }}-build-${{ steps.archive.outputs.build_number }}
           path: ios/build/export/*.ipa
           if-no-files-found: error
           retention-days: 14
