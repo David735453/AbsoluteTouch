@@ -8,7 +8,7 @@
 //!
 //! ```text
 //! header:  4 bytes magic "ATTR", 1 byte version, 3 reserved bytes
-//! record:  8-byte offset in microseconds since the first record, 40-byte packet
+//! record:  8-byte offset in microseconds since the session start, 40-byte packet
 //! ```
 
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -82,13 +82,18 @@ pub enum TraceError {
 #[derive(Debug)]
 pub struct TraceWriter {
     file: BufWriter<std::fs::File>,
-    origin: Option<Instant>,
+    origin: Instant,
     records: u64,
 }
 
 impl TraceWriter {
     /// Create a trace file, replacing any existing file.
-    pub fn create(path: &Path) -> Result<Self, TraceError> {
+    ///
+    /// Records are timestamped relative to `origin`, which must be the session
+    /// start. Using the first packet instead would shift every offset by the
+    /// connection latency and stop replay from reproducing the heartbeat clock
+    /// alignment the live session measured.
+    pub fn create(path: &Path, origin: Instant) -> Result<Self, TraceError> {
         let file = std::fs::File::create(path).map_err(|source| TraceError::Create {
             path: path.to_path_buf(),
             source,
@@ -101,15 +106,14 @@ impl TraceWriter {
 
         Ok(Self {
             file,
-            origin: None,
+            origin,
             records: 0,
         })
     }
 
     /// Append one inbound packet observed at `at`.
     pub fn record(&mut self, packet: &Packet, at: Instant) -> Result<(), TraceError> {
-        let origin = *self.origin.get_or_insert(at);
-        let offset = at.saturating_duration_since(origin).as_micros() as u64;
+        let offset = at.saturating_duration_since(self.origin).as_micros() as u64;
 
         self.file.write_all(&offset.to_le_bytes())?;
         self.file.write_all(&packet.encode())?;
@@ -134,7 +138,7 @@ impl TraceWriter {
 /// One decoded trace record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TraceRecord {
-    /// Host time since the first record.
+    /// Host time since the session start.
     pub offset: Duration,
     /// Recorded packet.
     pub packet: Packet,
@@ -236,7 +240,7 @@ mod tests {
         let path = directory.path().join("session.atrace");
         let start = Instant::now();
 
-        let mut writer = TraceWriter::create(&path).expect("create");
+        let mut writer = TraceWriter::create(&path, start).expect("create");
         writer.record(&packet(1), start).expect("record");
         writer
             .record(&packet(2), start + Duration::from_millis(1_500))
@@ -260,7 +264,7 @@ mod tests {
         let directory = tempfile::tempdir().expect("tempdir");
         let path = directory.path().join("empty.atrace");
 
-        let writer = TraceWriter::create(&path).expect("create");
+        let writer = TraceWriter::create(&path, Instant::now()).expect("create");
         assert_eq!(writer.finish().expect("finish"), 0);
 
         let mut reader = TraceReader::open(&path).expect("open");

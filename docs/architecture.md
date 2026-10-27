@@ -103,8 +103,12 @@ change this if measurements justify it.
 
 Heartbeats carry the host and device timestamps needed to align the two clocks,
 so the session also reports `input latency`: the age of each injected sample in
-host time. The counter is what turns "it sometimes lags" into a number, and it
-is the measurement to quote in a bug report.
+host time, measured above the fastest sample of the session. The absolute offset
+is only accurate to the round-trip asymmetry, which is tens of milliseconds on a
+buffering link, so a raw age would be dominated by clock error; the excess over
+the floor is the delay the user actually feels. The counter is what turns "it
+sometimes lags" into a number, and it is the measurement to quote in a bug
+report.
 
 ### Recording and replay
 

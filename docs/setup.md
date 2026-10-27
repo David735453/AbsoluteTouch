@@ -277,13 +277,19 @@ spaces, `-`, or `:` separators.
 
 ### Latency
 
-The desktop prints an `input latency` line in the session summary: the age of
-the newest sample when it was injected, measured on the desktop clock after the
-heartbeat offset is known. It covers the sender queue, the network, and the
-receive loop, but not the display pipeline or the game's own frame time.
+The desktop prints an `input latency` line in the session summary: how much
+later each sample was injected than the fastest sample of the session, measured
+on the desktop clock after the heartbeat offset is known. It covers the sender
+queue, the network, and the receive loop, but not the display pipeline or the
+game's own frame time.
+
+The absolute age is not reported because the heartbeat offset is only accurate
+to the round-trip asymmetry, which on a buffering link is tens of milliseconds.
+The fastest sample of the run is the floor, and every other sample is measured
+above it, which is the same number `analyze.py` prints for a recorded trace.
 
 ```text
-input latency: 3800 us last, 41900 us worst
+input latency: 3800 us last, 41900 us worst above floor
 ```
 
 If `worst` is regularly in the tens of milliseconds while `last` is small, the

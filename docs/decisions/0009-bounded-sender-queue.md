@@ -49,9 +49,19 @@ Two code paths turned a transient network stall into lasting lag:
   clock with the device timestamp it echoes in `x`/`y`, from the host-side
   turnaround.
 - Add `input latency` to the session summary: the age of each injected sample
-  in host time, using the heartbeat clock offset. Report the newest and the
-  worst value. Samples with an age over one second are ignored, because they
-  mean a clock jump rather than a slow link.
+  on the host clock, using the heartbeat clock offset, reported above the
+  fastest sample seen in the session. The offset is only accurate to the
+  round-trip asymmetry, so an absolute age carries a bias that is constant for
+  the session; the excess over the floor removes it and matches what
+  `analyze.py` computes for a recorded trace. Samples more than one second from
+  the floor are ignored, because they mean a clock jump rather than a slow link.
+- Reject impossible heartbeat echoes: a negative turnaround, a turnaround over
+  ten seconds, or a sender wait longer than the turnaround. After a desktop
+  restart the sender still holds timestamps from the previous process, whose
+  host clock is unrelated to the current one, and believing them wraps both the
+  RTT and the offset.
+- Time trace records from the session start rather than from the first record,
+  so a real-speed replay reproduces the clock alignment of the original run.
 
 ## Consequences
 
@@ -63,8 +73,10 @@ Two code paths turned a transient network stall into lasting lag:
 - Intermediate positions no longer reach the desktop, so a recorded trace has
   fewer samples than the iPad produced. The state sequence is unchanged.
 - `input latency` excludes the display pipeline and the game's own frame time,
-  so it is a lower bound on what the user sees. It is the number to compare
-  between runs, transports, and power-save settings.
+  so it is a lower bound on what the user sees. Because it is measured above
+  the fastest sample of the session, it is comparable between runs even though
+  the absolute clock offset is not. It is the number to compare between runs,
+  transports, and power-save settings.
 - Wi-Fi power saving, access-point beacon intervals, and hotspot buffering stay
   outside the program. [Setup](../setup.md#latency) documents how to check them,
   and USB (M4) removes the radio from the path entirely.

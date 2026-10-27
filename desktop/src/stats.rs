@@ -41,10 +41,16 @@ pub struct Stats {
     pub last_rtt_us: Option<u32>,
     /// Most recent clock-offset estimate in microseconds.
     pub last_offset_us: Option<i64>,
-    /// Most recent end-to-end sample age in microseconds.
+    /// Most recent injected-sample age above the session floor, in microseconds.
     pub last_sample_age_us: Option<u32>,
-    /// Largest end-to-end sample age seen in this session.
+    /// Largest injected-sample age above the session floor, in microseconds.
     pub worst_sample_age_us: u32,
+    /// Fastest injected-sample age seen this session, in microseconds.
+    ///
+    /// The heartbeat offset is only accurate to the round-trip asymmetry, so an
+    /// absolute age carries a constant unknown bias. Keeping the fastest age
+    /// and reporting the excess cancels that bias.
+    floor_sample_age_us: Option<i32>,
 }
 
 impl fmt::Display for Stats {
@@ -83,8 +89,8 @@ impl fmt::Display for Stats {
         if let Some(age) = self.last_sample_age_us {
             writeln!(
                 formatter,
-                "input latency: {} us last, {} us worst",
-                age, self.worst_sample_age_us,
+                "input latency: {age} us last, {} us worst above floor",
+                self.worst_sample_age_us,
             )?;
         }
         Ok(())
@@ -185,22 +191,35 @@ impl Stats {
 
     /// Largest sample age accepted as a measurement, in microseconds.
     ///
-    /// Anything older is a clock jump or an unrelated basestation, not a sample
-    /// the user is waiting for.
-    pub const MAX_SAMPLE_AGE_US: u32 = 1_000_000;
+    /// Anything further from the session floor is a clock jump or a sample from
+    /// another basestation, not input the user is waiting for.
+    pub const MAX_SAMPLE_AGE_US: i32 = 1_000_000;
 
-    /// Record the age of one sample, measured on the host clock.
+    /// Record the age of one injected sample, relative to the session floor.
+    ///
+    /// The heartbeat offset is only as accurate as the round-trip asymmetry, so
+    /// an absolute age carries a bias that is constant for the whole session.
+    /// Comparing each sample with the fastest sample seen so far cancels that
+    /// bias and leaves the delay the user actually feels, which is also what
+    /// `analyze.py` reports for a recorded trace.
     ///
     /// # Panics
     ///
-    /// Never panics; ages over [`Self::MAX_SAMPLE_AGE_US`] are ignored.
-    pub const fn record_sample_age(&mut self, age_us: u32) {
-        if age_us > Self::MAX_SAMPLE_AGE_US {
+    /// Never panics; ages more than [`Self::MAX_SAMPLE_AGE_US`] away from the
+    /// floor are ignored.
+    pub const fn record_sample_age(&mut self, age_us: i32) {
+        if age_us > Self::MAX_SAMPLE_AGE_US || age_us < -Self::MAX_SAMPLE_AGE_US {
             return;
         }
-        self.last_sample_age_us = Some(age_us);
-        if age_us > self.worst_sample_age_us {
-            self.worst_sample_age_us = age_us;
+        let floor = match self.floor_sample_age_us {
+            Some(floor) if floor <= age_us => floor,
+            _ => age_us,
+        };
+        self.floor_sample_age_us = Some(floor);
+        let excess = (age_us - floor) as u32;
+        self.last_sample_age_us = Some(excess);
+        if excess > self.worst_sample_age_us {
+            self.worst_sample_age_us = excess;
         }
     }
 }
@@ -216,6 +235,7 @@ mod tests {
         stats.record_sample();
         stats.record_timing(1_500, -250);
         stats.record_sample_age(2_000);
+        stats.record_sample_age(4_000);
 
         let text = stats.to_string();
 
@@ -223,18 +243,41 @@ mod tests {
         assert!(text.contains("1 injected"));
         assert!(text.contains("1500 us"));
         assert!(text.contains("-250 us"));
-        assert!(text.contains("input latency: 2000 us last, 2000 us worst"));
+        assert!(text.contains("input latency: 2000 us last, 2000 us worst above floor"));
     }
 
     #[test]
-    fn sample_age_keeps_the_worst_and_ignores_nonsense() {
+    fn sample_age_is_reported_above_the_fastest_sample() {
         let mut stats = Stats::default();
-        stats.record_sample_age(4_000);
+        stats.record_sample_age(3_000);
+        assert_eq!(stats.last_sample_age_us, Some(0));
+
+        stats.record_sample_age(1_000);
+        assert_eq!(stats.last_sample_age_us, Some(0));
+
+        stats.record_sample_age(9_000);
+        assert_eq!(stats.last_sample_age_us, Some(8_000));
+        assert_eq!(stats.worst_sample_age_us, 8_000);
+
+        // Clock noise can put a sample below the floor; it lowers the floor
+        // instead of wrapping around.
+        stats.record_sample_age(-2_000);
+        assert_eq!(stats.last_sample_age_us, Some(0));
+
+        stats.record_sample_age(3_000);
+        assert_eq!(stats.last_sample_age_us, Some(5_000));
+        assert_eq!(stats.worst_sample_age_us, 8_000);
+    }
+
+    #[test]
+    fn nonsense_sample_ages_are_ignored() {
+        let mut stats = Stats::default();
         stats.record_sample_age(1_500);
         stats.record_sample_age(Stats::MAX_SAMPLE_AGE_US + 1);
+        stats.record_sample_age(-Stats::MAX_SAMPLE_AGE_US - 1);
 
-        assert_eq!(stats.last_sample_age_us, Some(1_500));
-        assert_eq!(stats.worst_sample_age_us, 4_000);
+        assert_eq!(stats.last_sample_age_us, Some(0));
+        assert_eq!(stats.worst_sample_age_us, 0);
     }
 
     #[test]

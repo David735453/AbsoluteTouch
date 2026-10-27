@@ -60,17 +60,23 @@ pub fn wifi(
         config.backend, config.dry_run
     );
 
-    let mut session = Session::new(session_config(config)?, mapping(config), Instant::now());
-    let mut recorder = record.map(TraceWriter::create).transpose()?;
+    let started = Instant::now();
+    let mut session = Session::new(session_config(config)?, mapping(config), started);
+    let mut recorder = record
+        .map(|path| TraceWriter::create(path, started))
+        .transpose()?;
     let mut injected = 0;
 
     while !stop.load(Ordering::Relaxed) {
         match transport.recv_timeout(TICK) {
             Ok(Some(Inbound::Packet { peer, packet })) => {
+                // One timestamp for the trace and the session, so a replay
+                // reconstructs exactly the clock alignment the live run saw.
+                let now = Instant::now();
                 if let Some(recorder) = &mut recorder {
-                    recorder.record(&packet, Instant::now())?;
+                    recorder.record(&packet, now)?;
                 }
-                session.handle(peer, &packet, Instant::now());
+                session.handle(peer, &packet, now);
             }
             Ok(Some(Inbound::Invalid { peer, error })) => {
                 session.stats_mut().record_protocol_error();
@@ -429,10 +435,93 @@ mod tests {
     }
 
     #[test]
+    fn replay_reproduces_the_heartbeat_clock_alignment() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let path = directory.path().join("timed.atrace");
+        let config = config(free_port());
+        let port = config.udp_port;
+        let peer = format!("{}:{}", config.bind, port);
+        let stop = Arc::new(AtomicBool::new(false));
+        let runner = {
+            let stop = Arc::clone(&stop);
+            let config = config.clone();
+            let path = path.clone();
+            std::thread::spawn(move || {
+                let mut injector = RecordingInjector::default();
+                wifi(&config, &mut injector, Some(&path), &stop).expect("wifi")
+            })
+        };
+
+        // Wait before connecting so the first record lands well after the
+        // session starts. A trace timestamped from the first record instead
+        // would shift every offset by this delay.
+        std::thread::sleep(Duration::from_millis(150));
+
+        let client = UdpSocket::bind("127.0.0.1:0").expect("client");
+        client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("timeout");
+        let session_id = handshake(&client, &config);
+
+        // The first heartbeat has no acknowledgement to echo, so it teaches
+        // the host nothing about either clock.
+        let mut first = Packet::new(PacketType::Heartbeat);
+        first.session_id = session_id;
+        first.seq = 1;
+        first.device_time_us = 10_000_000;
+        client.send_to(&first.encode(), &peer).expect("heartbeat");
+
+        let mut buffer = [0_u8; 64];
+        let (length, _) = client.recv_from(&mut buffer).expect("ack");
+        let ack = Packet::decode(&buffer[..length]).expect("decode ack");
+        assert_eq!(ack.packet_type, PacketType::HeartbeatAck);
+
+        // The second heartbeat echoes that acknowledgement. The sender reports
+        // no wait of its own, so the turnaround is the network round trip.
+        let echoed_device: u32 = 10_020_000;
+        let mut second = Packet::new(PacketType::Heartbeat);
+        second.session_id = session_id;
+        second.seq = 2;
+        second.device_time_us = 10_020_000;
+        second.x = (echoed_device & 0xFFFF) as u16;
+        second.y = (echoed_device >> 16) as u16;
+        second.pressure = ack.pressure;
+        second.altitude = ack.altitude;
+        client.send_to(&second.encode(), &peer).expect("heartbeat");
+        let (length, _) = client.recv_from(&mut buffer).expect("ack");
+        assert_eq!(
+            Packet::decode(&buffer[..length])
+                .expect("decode ack")
+                .packet_type,
+            PacketType::HeartbeatAck
+        );
+
+        let mut stroke = sample(session_id, 3);
+        stroke.x = 100;
+        stroke.y = 200;
+        stroke.device_time_us = 10_030_000;
+        client.send_to(&stroke.encode(), &peer).expect("sample");
+        std::thread::sleep(Duration::from_millis(100));
+        stop.store(true, Ordering::Relaxed);
+
+        let report = runner.join().expect("join");
+        assert!(report.stats.last_rtt_us.is_some());
+        assert!(report.stats.last_sample_age_us.is_some());
+
+        let mut injector = MockInjector::default();
+        // Replay at real speed: compressing time would invalidate the clock
+        // alignment the run is about to check.
+        let replayed = replay(&path, 1.0, false, &config, &mut injector).expect("replay");
+
+        assert_eq!(replayed.stats.last_rtt_us, report.stats.last_rtt_us);
+        assert!(replayed.stats.last_sample_age_us.is_some());
+    }
+
+    #[test]
     fn replay_rejects_bad_speed() {
         let directory = tempfile::tempdir().expect("tempdir");
         let path = directory.path().join("empty.atrace");
-        let writer = TraceWriter::create(&path).expect("create");
+        let writer = TraceWriter::create(&path, Instant::now()).expect("create");
         writer.finish().expect("finish");
         let mut injector = MockInjector::default();
 

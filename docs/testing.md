@@ -424,9 +424,9 @@ backend, transport, iPad model, and Pencil model to the result.
       keys in `/proc/bus/input/devices` and `libinput list-devices`.
 - [ ] Moving the Pencil moves the desktop cursor in pointer mode on the session
       type under test (Wayland or X11).
-- [ ] `input latency` in the summary stays under one frame (about 17 ms) for a
-      whole stroke, and the `worst` value is recorded with the machine, OS, and
-      access point in the result.
+- [ ] `input latency` in the summary stays under one frame (about 17 ms) above
+      the floor for a whole stroke, and the `worst` value is recorded with the
+      machine, OS, and access point in the result.
 - [ ] `HELLO` / `HELLO_ACK` completes within one second.
 - [ ] A wrong token is rejected and logged.
 - [ ] A second iPad with the wrong token or source IP cannot take over.

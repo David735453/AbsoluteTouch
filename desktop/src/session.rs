@@ -433,13 +433,15 @@ impl<I: SessionIds> Session<I> {
         let mapped = self.mapping.map(&sample);
         self.stats.record_sample();
         if let Some(offset) = offset {
-            // Both clocks count microseconds from an arbitrary origin and wrap
-            // at about 71 minutes, so compare the difference modulo 2^32 and
-            // read it as signed. A stamp slightly ahead of the host clock is a
-            // rounding error in the offset estimate, not negative latency.
-            let device_host_clock = packet.device_time_us.wrapping_add(offset as u32);
-            let age = self.host_us(now).wrapping_sub(device_host_clock) as i32;
-            self.stats.record_sample_age(age.max(0) as u32);
+            // `offset` is device time minus host time, so a device stamp maps
+            // onto the host clock by subtracting it. Both clocks count
+            // microseconds from an arbitrary origin and wrap at about 71
+            // minutes, so compare the difference modulo 2^32 and read it as
+            // signed. A stamp slightly ahead of the host clock is a rounding
+            // error in the offset estimate, not negative latency.
+            let sample_host_time = packet.device_time_us.wrapping_sub(offset as u32);
+            let age = self.host_us(now).wrapping_sub(sample_host_time) as i32;
+            self.stats.record_sample_age(age);
         }
         self.actions.push(Action::Inject(mapped));
     }
@@ -453,24 +455,9 @@ impl<I: SessionIds> Session<I> {
         let host_now = self.host_us(now);
         let echoed_host = u32::from(packet.pressure) | (u32::from(packet.altitude) << 16);
         let echoed_device = u32::from(packet.x) | (u32::from(packet.y) << 16);
-        if echoed_host != 0 {
-            // The sender echoes the host time of the previous acknowledgement
-            // but only sends its next heartbeat up to a second later, so the
-            // raw difference is mostly heartbeat period. The sender also
-            // reports its own time when that acknowledgement arrived, which
-            // measures the wait on a single clock; subtracting it leaves the
-            // network round trip.
-            let turnaround = host_now.wrapping_sub(echoed_host);
-            let waited = if echoed_device == 0 {
-                0
-            } else {
-                packet.device_time_us.wrapping_sub(echoed_device)
-            };
-            let rtt = if waited < turnaround {
-                turnaround - waited
-            } else {
-                turnaround
-            };
+        if let Some(rtt) =
+            Self::round_trip(host_now, echoed_host, packet.device_time_us, echoed_device)
+        {
             let midpoint = host_now.wrapping_sub(rtt / 2);
             let offset = i64::from(packet.device_time_us) - i64::from(midpoint);
             self.stats.record_timing(rtt, offset);
@@ -591,6 +578,44 @@ impl<I: SessionIds> Session<I> {
 
     fn host_us(&self, now: Instant) -> u32 {
         now.saturating_duration_since(self.started).as_micros() as u32
+    }
+
+    /// Largest plausible heartbeat turnaround, in microseconds.
+    ///
+    /// The sender heartbeats once a second, so a full second of turnaround is
+    /// normal and ten is already suspicious. Anything beyond is a stale echo
+    /// rather than a slow link.
+    const MAX_TURNAROUND_US: i32 = 10_000_000;
+
+    /// Estimate the network round trip from the echoed heartbeat pair.
+    ///
+    /// The heartbeat carries the host time of the previous acknowledgement and
+    /// the device time it arrived. The raw host difference is mostly the
+    /// sender's heartbeat period, so subtract the wait the sender measured on
+    /// its own clock; what remains is the two network legs.
+    ///
+    /// Returns `None` when the sender has no acknowledgement to echo yet, or
+    /// when the pair is implausible. A stale echo is the common case: after a
+    /// desktop restart the sender still holds timestamps from the previous
+    /// process, whose host clock is unrelated to this one.
+    fn round_trip(
+        host_now: u32,
+        echoed_host: u32,
+        device_now: u32,
+        echoed_device: u32,
+    ) -> Option<u32> {
+        if echoed_host == 0 || echoed_device == 0 {
+            return None;
+        }
+        let turnaround = host_now.wrapping_sub(echoed_host) as i32;
+        let waited = device_now.wrapping_sub(echoed_device) as i32;
+        if !(0..=Self::MAX_TURNAROUND_US).contains(&turnaround) {
+            return None;
+        }
+        if !(0..=turnaround).contains(&waited) {
+            return None;
+        }
+        Some((turnaround - waited) as u32)
     }
 }
 
@@ -1084,6 +1109,11 @@ mod tests {
         packet.seq = 3;
         packet.session_id = 7;
         packet.device_time_us = 5_000_000;
+        // The acknowledgement reached the device at the same instant the
+        // heartbeat left it, so the sender's wait is zero.
+        let (x, y) = words(5_000_000);
+        packet.x = x;
+        packet.y = y;
         let echoed_host: u32 = 90_000;
         packet.pressure = (echoed_host & 0xFFFF) as u16;
         packet.altitude = (echoed_host >> 16) as u16;
@@ -1146,45 +1176,111 @@ mod tests {
         );
         assert_eq!(session.stats().last_sample_age_us, None);
 
-        // Establish an offset of +5000 us: host time 1_000_000, device time
-        // 1_000_000, round trip 10 ms.
+        // The device clock runs ten seconds ahead of the host clock. The
+        // acknowledgement left the host at 1_990 ms and reached the device at
+        // 11_995 ms; the sender waited 5 ms before its heartbeat at 2_000 ms /
+        // 12_000 ms. That makes the round trip 5 ms and the offset
+        // 12_000_000 - (2_000_000 - 2_500) = 10_002_500 us.
         let mut heartbeat = Packet::new(PacketType::Heartbeat);
         heartbeat.seq = 2;
         heartbeat.session_id = 7;
-        heartbeat.device_time_us = 1_000_000;
-        let (x, y) = words(985_000);
+        heartbeat.device_time_us = 12_000_000;
+        let (x, y) = words(11_995_000);
         heartbeat.x = x;
         heartbeat.y = y;
-        let echoed_host: u32 = 990_000;
+        let echoed_host: u32 = 1_990_000;
         heartbeat.pressure = (echoed_host & 0xFFFF) as u16;
         heartbeat.altitude = (echoed_host >> 16) as u16;
-        session.handle(peer(), &heartbeat, started + Duration::from_millis(1_000));
-        assert_eq!(session.stats().last_offset_us, Some(5_000));
+        session.handle(peer(), &heartbeat, started + Duration::from_millis(2_000));
+        assert_eq!(session.stats().last_rtt_us, Some(5_000));
+        assert_eq!(session.stats().last_offset_us, Some(10_002_500));
 
+        // Ages are 8_500, 22_500, 10_500, and 3_500 us. The first sample sets
+        // the floor, and every later age is reported above it.
         let mut early = sample(3, 100, 200);
-        early.device_time_us = 1_050_000;
-        session.handle(peer(), &early, started + Duration::from_millis(1_056));
-        assert_eq!(session.stats().last_sample_age_us, Some(1_000));
-        assert_eq!(session.stats().worst_sample_age_us, 1_000);
+        early.device_time_us = 12_050_000;
+        session.handle(peer(), &early, started + Duration::from_millis(2_056));
+        assert_eq!(session.stats().last_sample_age_us, Some(0));
+        assert_eq!(session.stats().worst_sample_age_us, 0);
 
         let mut late = sample(4, 100, 200);
-        late.device_time_us = 1_100_000;
-        session.handle(peer(), &late, started + Duration::from_millis(1_120));
-        assert_eq!(session.stats().last_sample_age_us, Some(15_000));
+        late.device_time_us = 12_100_000;
+        session.handle(peer(), &late, started + Duration::from_millis(2_120));
+        assert_eq!(session.stats().last_sample_age_us, Some(14_000));
 
-        let mut fresh = sample(5, 100, 200);
-        fresh.device_time_us = 1_200_000;
-        session.handle(peer(), &fresh, started + Duration::from_millis(1_208));
-        assert_eq!(session.stats().last_sample_age_us, Some(3_000));
-        assert_eq!(session.stats().worst_sample_age_us, 15_000);
+        let mut middling = sample(5, 100, 200);
+        middling.device_time_us = 12_150_000;
+        session.handle(peer(), &middling, started + Duration::from_millis(2_158));
+        assert_eq!(session.stats().last_sample_age_us, Some(2_000));
+        assert_eq!(session.stats().worst_sample_age_us, 14_000);
 
-        // An offset rounding error can put a stamp a little into the future;
-        // that is no latency, not a wrapped 71-minute age.
+        // An offset rounding error can put a stamp a little into the future.
+        // That lowers the floor instead of reporting negative latency or a
+        // wrapped 71-minute age.
         let mut ahead = sample(6, 100, 200);
-        ahead.device_time_us = 1_300_000;
-        session.handle(peer(), &ahead, started + Duration::from_millis(1_303));
+        ahead.device_time_us = 12_200_000;
+        session.handle(peer(), &ahead, started + Duration::from_millis(2_201));
         assert_eq!(session.stats().last_sample_age_us, Some(0));
-        assert_eq!(session.stats().worst_sample_age_us, 15_000);
+        assert_eq!(session.stats().worst_sample_age_us, 14_000);
+    }
+
+    #[test]
+    fn stale_heartbeat_echo_is_ignored() {
+        let started = Instant::now();
+        let mut session = session(started);
+        handshake(&mut session, started);
+        session.take_actions();
+
+        // The sender still echoes the host time of the previous desktop
+        // process, which ran for 12 s, while this process is only 1 s old.
+        // Believing it would wrap the turnaround to just over an hour.
+        let mut packet = Packet::new(PacketType::Heartbeat);
+        packet.seq = 3;
+        packet.session_id = 7;
+        packet.device_time_us = 20_000_000;
+        let (x, y) = words(19_000_000);
+        packet.x = x;
+        packet.y = y;
+        let echoed_host: u32 = 12_000_000;
+        packet.pressure = (echoed_host & 0xFFFF) as u16;
+        packet.altitude = (echoed_host >> 16) as u16;
+
+        session.handle(peer(), &packet, started + Duration::from_millis(1_000));
+
+        assert_eq!(session.stats().last_rtt_us, None);
+        assert_eq!(session.stats().last_offset_us, None);
+
+        // The acknowledgement still goes out so the sender can recover.
+        match session.take_actions().as_slice() {
+            [Action::SendHeartbeatAck { .. }] => {}
+            other => panic!("unexpected actions: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn impossible_heartbeat_pair_is_ignored() {
+        let started = Instant::now();
+        let mut session = session(started);
+        handshake(&mut session, started);
+        session.take_actions();
+
+        // The sender claims to have waited longer than the whole turnaround,
+        // which cannot happen on a real link.
+        let mut packet = Packet::new(PacketType::Heartbeat);
+        packet.seq = 3;
+        packet.session_id = 7;
+        packet.device_time_us = 20_000_000;
+        let (x, y) = words(18_000_000);
+        packet.x = x;
+        packet.y = y;
+        let echoed_host: u32 = 900_000;
+        packet.pressure = (echoed_host & 0xFFFF) as u16;
+        packet.altitude = (echoed_host >> 16) as u16;
+
+        session.handle(peer(), &packet, started + Duration::from_millis(1_000));
+
+        assert_eq!(session.stats().last_rtt_us, None);
+        assert_eq!(session.stats().last_offset_us, None);
     }
 
     #[test]
