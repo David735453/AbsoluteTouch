@@ -35,19 +35,19 @@ injection is not implemented.
 
 ## Locked decisions
 
-| Area | Decision |
-| --- | --- |
-| Bundle ID | `org.dstudios.absolutetouch` |
-| Desktop | Rust CLI plus TOML config. No GUI in v1. |
-| Transports | Wi-Fi UDP and USB via `usbmuxd`. No Ethernet. |
-| USB direction | iPad is the TCP server; desktop is the client. |
-| Pencil | Apple Pencil (USB-C): tilt and hover, **no pressure**, no Pencil Pro features. |
-| Pressure | Protocol field exists for future Pencils; host uses a default level when unsupported. |
-| Hover | In scope for M3 because the iPad Air M4 supports it. |
-| osu! | Stable and lazer; Linux `uinput` is the reference backend. |
-| License | MIT |
-| Minimum iPadOS | 17.0 |
-| Display | iPad Air M4 is 60 Hz; do not claim 120/240 Hz. |
+| Area           | Decision                                                                              |
+| -------------- | ------------------------------------------------------------------------------------- |
+| Bundle ID      | `org.dstudios.absolutetouch`                                                          |
+| Desktop        | Rust CLI plus TOML config. No GUI in v1.                                              |
+| Transports     | Wi-Fi UDP and USB via `usbmuxd`. No Ethernet.                                         |
+| USB direction  | iPad is the TCP server; desktop is the client.                                        |
+| Pencil         | Apple Pencil (USB-C): tilt and hover, **no pressure**, no Pencil Pro features.        |
+| Pressure       | Protocol field exists for future Pencils; host uses a default level when unsupported. |
+| Hover          | In scope for M3 because the iPad Air M4 supports it.                                  |
+| osu!           | Stable and lazer; Linux `uinput` is the reference backend.                            |
+| License        | MIT                                                                                   |
+| Minimum iPadOS | 17.0                                                                                  |
+| Display        | iPad Air M4 is 60 Hz; do not claim 120/240 Hz.                                        |
 
 ## Skills: load before writing code
 
@@ -55,6 +55,8 @@ Skills live in `.agents/skills/` and are also available through the skill tool.
 
 - Rust: load `albo-rust`, `coding-guidelines`, and `domain-cli` before writing
   or changing any `.rs` file.
+- Markdown: run `make fmt-md` after editing prose, tables, or lists; the
+  Prettier check is part of `make check` and the pre-commit hook.
 - Swift concurrency: load `swift-concurrency` before changing concurrency,
   actors, `Sendable`, or `@MainActor` code.
 - SwiftUI: load `swiftui-pro` before changing SwiftUI views.
@@ -94,6 +96,8 @@ make test
 make lint
 make fmt
 make fmt-swift
+make fmt-md
+make lint-md
 make lint-ruby
 make hooks
 make doctor
@@ -160,6 +164,7 @@ Linux ARM64 and both Windows targets. `release.yml` stays manual.
 ```text
 AGENTS.md              this file
 README.md              public overview and quick start
+package.json           Prettier version used for the Markdown check
 protocol/              40-byte wire format and golden vectors
 desktop/               Rust CLI, protocol, mapping, injectors
 ios/AbsoluteTouchCore/ Swift package with UI-free logic and tests

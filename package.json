@@ -1,0 +1,14 @@
+{
+	"name": "absolutetouch-tools",
+	"private": true,
+	"version": "0.0.1",
+	"description": "Markdown formatting for AbsoluteTouch",
+	"license": "MIT",
+	"scripts": {
+		"fmt": "prettier --write '**/*.md'",
+		"lint": "prettier --check '**/*.md'"
+	},
+	"devDependencies": {
+		"prettier": "^3.9.10"
+	}
+}

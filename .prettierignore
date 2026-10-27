@@ -1,0 +1,14 @@
+# Markdown that Prettier must not touch.
+
+# Agent skills are vendored and kept exactly as shipped. See skills-lock.json.
+.agents/
+
+# Dependencies and build output, including any generated Markdown inside them.
+node_modules/
+desktop/target/
+ios/.build/
+ios/AbsoluteTouchCore/.build/
+ios/build/
+ios/DerivedData/
+ios/vendor/
+/dist/

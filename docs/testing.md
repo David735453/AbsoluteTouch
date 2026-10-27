@@ -33,7 +33,7 @@ compile.
 # Everything that runs on Linux
 make setup        # enable the tracked pre-commit hook
 make toolchain    # update stable Rust and its clippy/rustfmt components
-make check        # vectors, rustfmt, clippy, swift-format, ruby -c
+make check        # vectors, rustfmt, clippy, swift-format, prettier, ruby -c
 make test
 make doctor
 
@@ -59,6 +59,10 @@ ruby -c ios/fastlane/Fastfile
 
 # Golden vectors are current
 python3 tools/gen_vectors.py --check
+
+# Markdown, using the Prettier pinned in package-lock.json
+npm install
+make lint-md      # check; make fmt-md rewrites in place
 ```
 
 A change is not ready when any of these fails locally.

@@ -61,19 +61,19 @@ See [ADR 0002](decisions/0002-wifi-and-usb-transports.md).
 
 The desktop is a single Rust crate with a library and a thin binary.
 
-| Module | Responsibility | Status |
-| --- | --- | --- |
-| `protocol` | 40-byte encode/decode, flags, errors | M0 |
-| `config` | Defaults, TOML, environment, and CLI precedence | M1 |
-| `cli` | Argument parsing and command dispatch | M1 |
-| `doctor` | Environment and permission report | M0 |
-| `transport::udp` | Wi-Fi UDP receive path and bounded queue | M1 |
-| `transport::usbmux` | USB path through `usbmuxd` | M4 |
-| `transport::trace` | Record and replay packet traces | M1 |
-| `session` | Handshake, sequence window, heartbeats, watchdog | M1 |
-| `mapping` | Normalized device → target rectangle | M1 |
-| `inject` | Injector trait, mock recorder, platform backends | M1 mock, M2 uinput; M5/M6 planned |
-| `stats` | Counters for drops, latency, errors | M1 |
+| Module              | Responsibility                                   | Status                            |
+| ------------------- | ------------------------------------------------ | --------------------------------- |
+| `protocol`          | 40-byte encode/decode, flags, errors             | M0                                |
+| `config`            | Defaults, TOML, environment, and CLI precedence  | M1                                |
+| `cli`               | Argument parsing and command dispatch            | M1                                |
+| `doctor`            | Environment and permission report                | M0                                |
+| `transport::udp`    | Wi-Fi UDP receive path and bounded queue         | M1                                |
+| `transport::usbmux` | USB path through `usbmuxd`                       | M4                                |
+| `transport::trace`  | Record and replay packet traces                  | M1                                |
+| `session`           | Handshake, sequence window, heartbeats, watchdog | M1                                |
+| `mapping`           | Normalized device → target rectangle             | M1                                |
+| `inject`            | Injector trait, mock recorder, platform backends | M1 mock, M2 uinput; M5/M6 planned |
+| `stats`             | Counters for drops, latency, errors              | M1                                |
 
 ### Session pipeline
 
@@ -166,11 +166,11 @@ Mapping is pure and unit-tested without any OS backend.
 
 ## iPad app
 
-| Layer | Responsibility | Status |
-| --- | --- | --- |
-| `ios/App` | SwiftUI pairing shell, UIKit canvas, view model | M3 |
-| `AbsoluteTouchCore` | Protocol, session machine, controller, UDP transport | M3 |
-| UI tests | Not used for protocol logic | - |
+| Layer               | Responsibility                                       | Status |
+| ------------------- | ---------------------------------------------------- | ------ |
+| `ios/App`           | SwiftUI pairing shell, UIKit canvas, view model      | M3     |
+| `AbsoluteTouchCore` | Protocol, session machine, controller, UDP transport | M3     |
+| UI tests            | Not used for protocol logic                          | -      |
 
 ### Why a Swift package
 
@@ -290,15 +290,15 @@ idle ──start──▶ connecting(attempt) ──HELLO_ACK──▶ streaming
 
 ## Milestones
 
-| Milestone | Scope |
-| --- | --- |
-| M0 | Skeleton, protocol, golden vectors, Rust + Swift tests, manual CI |
-| M1 | Desktop session, UDP, config, trace replay, mock injector |
-| M2 | Linux `uinput` backend |
-| M3 | iPad canvas, Wi-Fi end-to-end, hover |
-| M4 | USB via `usbmuxd` |
-| M5 | Windows backends (beta) |
-| M6 | macOS backend, TestFlight, releases |
+| Milestone | Scope                                                             |
+| --------- | ----------------------------------------------------------------- |
+| M0        | Skeleton, protocol, golden vectors, Rust + Swift tests, manual CI |
+| M1        | Desktop session, UDP, config, trace replay, mock injector         |
+| M2        | Linux `uinput` backend                                            |
+| M3        | iPad canvas, Wi-Fi end-to-end, hover                              |
+| M4        | USB via `usbmuxd`                                                 |
+| M5        | Windows backends (beta)                                           |
+| M6        | macOS backend, TestFlight, releases                               |
 
 Platforms are not marked supported because they compile. Linux is the
 reference; Windows and macOS stay beta until manual validation on real

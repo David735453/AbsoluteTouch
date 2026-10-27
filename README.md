@@ -12,16 +12,16 @@ the validated reference.
 
 ## Status
 
-| Area                      | State                          |
-| ------------------------- | ------------------------------ |
-| Protocol + golden vectors | Implemented and tested         |
-| Desktop Wi-Fi session     | Implemented and tested (M1)    |
-| Swift core package        | Implemented and tested         |
-| Linux `uinput` tablet     | Implemented and tested (M2)    |
+| Area                      | State                                       |
+| ------------------------- | ------------------------------------------- |
+| Protocol + golden vectors | Implemented and tested                      |
+| Desktop Wi-Fi session     | Implemented and tested (M1)                 |
+| Swift core package        | Implemented and tested                      |
+| Linux `uinput` tablet     | Implemented and tested (M2)                 |
 | iPad app + Wi-Fi sender   | Implemented, needs hardware validation (M3) |
-| USB streaming             | Planned (M4)                   |
-| Windows / macOS injection | Planned (M5/M6)                |
-| TestFlight / releases     | Workflow ready (manual)        |
+| USB streaming             | Planned (M4)                                |
+| Windows / macOS injection | Planned (M5/M6)                             |
+| TestFlight / releases     | Workflow ready (manual)                     |
 
 ## Hardware note
 
@@ -47,15 +47,16 @@ cd AbsoluteTouch
 make setup         # enable the tracked pre-commit hook
 make toolchain     # update stable Rust and its clippy/rustfmt components
 make test          # Rust + Swift core tests
-make check         # formatting, lints, vectors, Ruby syntax
+make check         # formatting, lints, vectors, Ruby syntax, Markdown
+make fmt-md        # format Markdown with Prettier
 make doctor        # CLI environment report
 ```
 
 `make setup`, `make check`, `make test`, and `make lint` all enable the tracked
 hook, so a fresh clone gets the staged-file checks the first time it runs any of
 them. The hook runs rustfmt, clippy, Rust tests, swift-format, Swift tests,
-workflow YAML and plist parsing, golden vectors, and Ruby syntax for the staged
-areas; `make hooks-off` disables it.
+workflow YAML and plist parsing, golden vectors, Ruby syntax, and Markdown
+formatting for the staged areas; `make hooks-off` disables it.
 
 Run a session:
 

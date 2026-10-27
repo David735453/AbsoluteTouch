@@ -21,3 +21,8 @@ indent_size = 4
 [Makefile]
 indent_style = tab
 indent_size = 4
+
+# Markdown follows .prettierrc.json, which indents with tabs two columns wide.
+[*.md]
+indent_style = tab
+indent_size = 2

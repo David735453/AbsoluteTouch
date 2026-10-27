@@ -112,6 +112,22 @@ check_swiftlint() {
     fi
 }
 
+check_markdown() {
+    changed '\.md$' || return 0
+    if [ ! -x node_modules/.bin/prettier ]; then
+        skip "prettier (no node_modules; run: npm install)"
+        return 0
+    fi
+    # tools/prettier.sh pins the version through package-lock.json, so a local
+    # check and the CI check use the same formatter.
+    if out=$(tools/prettier.sh --check '**/*.md' 2>&1); then
+        ok "prettier (markdown)"
+    else
+        fail "prettier (run: make fmt-md)"
+        detail "$out" | head -20
+    fi
+}
+
 check_workflows() {
     changed '^\.github/workflows/.*\.ya?ml$|^\.github/dependabot\.yml$|^ios/project\.yml$' || return 0
     if [ -z "$ruby_bin" ]; then
@@ -190,6 +206,7 @@ check_rust
 check_swift_format
 check_swift_tests
 check_swiftlint
+check_markdown
 check_workflows
 check_plists
 check_vectors

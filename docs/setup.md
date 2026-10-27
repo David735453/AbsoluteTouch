@@ -15,9 +15,12 @@ backends (M5, M6) are planned.
 | iOS              | iPadOS 17.0 or newer                                                           |
 | Linux backend    | Write access to `/dev/uinput`; read access to `/dev/input/event*` for `evtest` |
 | Swift core tests | Swift 6.4 or newer (Linux or macOS)                                            |
+| Markdown docs    | Node 24 or newer for `make fmt-md` and `make lint-md`                          |
 
 The core package declares `swift-tools-version: 6.4`; CI installs Swift 6.4.1
-with `SwiftyLab/setup-swift`. The iOS app's `SWIFT_VERSION: "6.0"` is the Swift
+with `SwiftyLab/setup-swift`. Markdown is formatted with the Prettier pinned in
+`package-lock.json`, so run `npm install` once before `make fmt-md`; the checks
+are skipped when `node_modules` is absent. The iOS app's `SWIFT_VERSION: "6.0"` is the Swift
 language mode, not the compiler version — Xcode 27 provides the compiler and the
 iOS 27 SDK while the deployment target stays at 17.0.
 

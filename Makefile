@@ -2,7 +2,7 @@ HOOKS_DIR := .githooks
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup toolchain test test-rust test-swift check lint fmt fmt-check fmt-swift lint-swift lint-swiftlint lint-ruby vectors check-vectors hooks hooks-off doctor desktop ios-gen
+.PHONY: help setup toolchain test test-rust test-swift check lint fmt fmt-check fmt-swift lint-swift lint-swiftlint fmt-md lint-md lint-ruby vectors check-vectors hooks hooks-off doctor desktop ios-gen
 
 help:
 	@printf '%s\n' \
@@ -18,6 +18,8 @@ help:
 		'make fmt-swift    Format Swift with swift-format' \
 		'make lint-swift   Check Swift formatting with swift-format' \
 		'make lint-swiftlint Run SwiftLint (optional, needs swiftlint)' \
+		'make fmt-md      Format Markdown with Prettier' \
+		'make lint-md     Check Markdown formatting with Prettier' \
 		'make lint-ruby    Syntax-check the Fastfile and Gemfile' \
 		'make vectors      Regenerate protocol/vectors.json' \
 		'make check-vectors Check that protocol/vectors.json is current' \
@@ -30,6 +32,7 @@ help:
 setup: hooks
 	@printf '%s\n' 'Local setup complete.' \
 		'  make toolchain   update stable Rust and its components' \
+		'  npm install      install the Prettier used by make fmt-md' \
 		'  make test        Rust + Swift tests' \
 		'  make check       format, lint, and vector checks'
 
@@ -70,6 +73,12 @@ fmt-swift:
 lint-swift:
 	swift format lint --strict --recursive ios/AbsoluteTouchCore ios/App
 
+fmt-md:
+	@tools/prettier.sh --write '**/*.md'
+
+lint-md:
+	@tools/prettier.sh --check '**/*.md'
+
 lint-swiftlint:
 	@if ! command -v swiftlint >/dev/null 2>&1; then \
 		printf 'skip  swiftlint (not installed; CI runs it on macOS)\n'; \
@@ -88,7 +97,7 @@ lint-ruby:
 	fi
 
 check: hooks
-check: check-vectors fmt-check lint lint-swift lint-swiftlint lint-ruby
+check: check-vectors fmt-check lint lint-swift lint-swiftlint lint-md lint-ruby
 
 hooks:
 	@if ! git rev-parse --git-dir >/dev/null 2>&1; then \

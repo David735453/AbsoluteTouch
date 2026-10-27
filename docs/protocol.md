@@ -15,38 +15,38 @@ checked by both test suites.
 
 ## Packet layout
 
-| Offset | Size | Type | Field | Notes |
-| ---: | ---: | --- | --- | --- |
-| 0 | 2 | `u16` | `magic` | Always `0x5441` |
-| 2 | 1 | `u8` | `version` | Always `1` |
-| 3 | 1 | `u8` | `type` | See packet types |
-| 4 | 2 | `u16` | `flags` | Pointer or capability bits |
-| 6 | 2 | `u16` | `seq` | Wraps at 65,535 |
-| 8 | 4 | `u32` | `session_id` | Zero until `HELLO_ACK` |
-| 12 | 4 | `u32` | `t_device_us` | Device monotonic time, microseconds |
-| 16 | 2 | `u16` | `x` | Position or payload word |
-| 18 | 2 | `u16` | `y` | Position or payload word |
-| 20 | 2 | `u16` | `pressure` | Pressure or payload word |
-| 22 | 2 | `u16` | `altitude` | Tilt altitude or payload word |
-| 24 | 2 | `u16` | `azimuth` | Tilt azimuth |
-| 26 | 2 | `u16` | `twist` | Twist; reserved on current hardware |
-| 28 | 2 | `u16` | `status` | Reserved telemetry; send `0` |
-| 30 | 2 | `u16` | `reserved` | Send `0` |
-| 32 | 8 | bytes | `auth_tag` | Reserved; all zeros in version 1 |
+| Offset | Size | Type  | Field         | Notes                               |
+| -----: | ---: | ----- | ------------- | ----------------------------------- |
+|      0 |    2 | `u16` | `magic`       | Always `0x5441`                     |
+|      2 |    1 | `u8`  | `version`     | Always `1`                          |
+|      3 |    1 | `u8`  | `type`        | See packet types                    |
+|      4 |    2 | `u16` | `flags`       | Pointer or capability bits          |
+|      6 |    2 | `u16` | `seq`         | Wraps at 65,535                     |
+|      8 |    4 | `u32` | `session_id`  | Zero until `HELLO_ACK`              |
+|     12 |    4 | `u32` | `t_device_us` | Device monotonic time, microseconds |
+|     16 |    2 | `u16` | `x`           | Position or payload word            |
+|     18 |    2 | `u16` | `y`           | Position or payload word            |
+|     20 |    2 | `u16` | `pressure`    | Pressure or payload word            |
+|     22 |    2 | `u16` | `altitude`    | Tilt altitude or payload word       |
+|     24 |    2 | `u16` | `azimuth`     | Tilt azimuth                        |
+|     26 |    2 | `u16` | `twist`       | Twist; reserved on current hardware |
+|     28 |    2 | `u16` | `status`      | Reserved telemetry; send `0`        |
+|     30 |    2 | `u16` | `reserved`    | Send `0`                            |
+|     32 |    8 | bytes | `auth_tag`    | Reserved; all zeros in version 1    |
 
 The header is bytes 0 through 15. Bytes 16 through 31 are a type-specific
 payload. Bytes 32 through 39 are the reserved authentication tag.
 
 ## Packet types
 
-| Value | Name | Direction | Payload |
-| ---: | --- | --- | --- |
-| 1 | `HELLO` | iPad → desktop | 16-byte session token |
-| 2 | `HELLO_ACK` | desktop → iPad | Echoed token |
-| 3 | `SAMPLE` | iPad → desktop | Pointer state |
-| 4 | `HEARTBEAT` | iPad → desktop | Timestamps |
-| 5 | `HEARTBEAT_ACK` | desktop → iPad | Timestamps |
-| 6 | `BYE` | either | None |
+| Value | Name            | Direction      | Payload               |
+| ----: | --------------- | -------------- | --------------------- |
+|     1 | `HELLO`         | iPad → desktop | 16-byte session token |
+|     2 | `HELLO_ACK`     | desktop → iPad | Echoed token          |
+|     3 | `SAMPLE`        | iPad → desktop | Pointer state         |
+|     4 | `HEARTBEAT`     | iPad → desktop | Timestamps            |
+|     5 | `HEARTBEAT_ACK` | desktop → iPad | Timestamps            |
+|     6 | `BYE`           | either         | None                  |
 
 Any other value is a protocol error and must be dropped.
 
@@ -56,19 +56,19 @@ Pointer flags are valid in `SAMPLE` packets. Capability flags are valid only in
 `HELLO` and `HELLO_ACK` packets. Reserved bits must be zero when sending and
 must be ignored when receiving.
 
-| Bit | Mask | Name | Valid in | Meaning |
-| ---: | ---: | --- | --- | --- |
-| 0 | `0x0001` | `CONTACT` | `SAMPLE` | Tip is touching the screen |
-| 1 | `0x0002` | `HOVER` | `SAMPLE` | In range, not touching |
-| 2 | `0x0004` | `ERASER` | `SAMPLE` | Eraser tool selected |
-| 3 | `0x0008` | `BARREL` | `SAMPLE` | Barrel button pressed |
-| 4 | `0x0010` | `PREDICTED` | `SAMPLE` | Predicted future sample |
-| 5 | `0x0020` | `OUT_OF_RANGE` | `SAMPLE` | Pointer left the active area |
-| 6 | `0x0040` | `FINGER` | `SAMPLE` | Sample came from a finger |
-| 8 | `0x0100` | `CAP_PRESSURE` | `HELLO`, `HELLO_ACK` | Pressure is supported |
-| 9 | `0x0200` | `CAP_TILT` | `HELLO`, `HELLO_ACK` | Tilt is supported |
-| 10 | `0x0400` | `CAP_HOVER` | `HELLO`, `HELLO_ACK` | Hover is supported |
-| 11 | `0x0800` | `CAP_TWIST` | `HELLO`, `HELLO_ACK` | Twist is supported |
+| Bit |     Mask | Name           | Valid in             | Meaning                      |
+| --: | -------: | -------------- | -------------------- | ---------------------------- |
+|   0 | `0x0001` | `CONTACT`      | `SAMPLE`             | Tip is touching the screen   |
+|   1 | `0x0002` | `HOVER`        | `SAMPLE`             | In range, not touching       |
+|   2 | `0x0004` | `ERASER`       | `SAMPLE`             | Eraser tool selected         |
+|   3 | `0x0008` | `BARREL`       | `SAMPLE`             | Barrel button pressed        |
+|   4 | `0x0010` | `PREDICTED`    | `SAMPLE`             | Predicted future sample      |
+|   5 | `0x0020` | `OUT_OF_RANGE` | `SAMPLE`             | Pointer left the active area |
+|   6 | `0x0040` | `FINGER`       | `SAMPLE`             | Sample came from a finger    |
+|   8 | `0x0100` | `CAP_PRESSURE` | `HELLO`, `HELLO_ACK` | Pressure is supported        |
+|   9 | `0x0200` | `CAP_TILT`     | `HELLO`, `HELLO_ACK` | Tilt is supported            |
+|  10 | `0x0400` | `CAP_HOVER`    | `HELLO`, `HELLO_ACK` | Hover is supported           |
+|  11 | `0x0800` | `CAP_TWIST`    | `HELLO`, `HELLO_ACK` | Twist is supported           |
 
 Bits 7 and 12 through 15 are reserved.
 
@@ -158,10 +158,10 @@ drops packets whose session identifier does not match the active session.
 
 Heartbeat packets carry two 32-bit timestamps in the payload, low word first:
 
-| Field pair | `HEARTBEAT` (iPad → desktop) | `HEARTBEAT_ACK` (desktop → iPad) |
-| --- | --- | --- |
-| `x`, `y` | Device time when the last `HEARTBEAT_ACK` arrived, or zero | Echoed device time from the heartbeat |
-| `pressure`, `altitude` | Host time carried by that `HEARTBEAT_ACK`, or zero | Host time at send, microseconds |
+| Field pair             | `HEARTBEAT` (iPad → desktop)                               | `HEARTBEAT_ACK` (desktop → iPad)      |
+| ---------------------- | ---------------------------------------------------------- | ------------------------------------- |
+| `x`, `y`               | Device time when the last `HEARTBEAT_ACK` arrived, or zero | Echoed device time from the heartbeat |
+| `pressure`, `altitude` | Host time carried by that `HEARTBEAT_ACK`, or zero         | Host time at send, microseconds       |
 
 The header `t_device_us` carries the sender's current monotonic time. The
 payload pair lets each side echo the other's timestamp and estimate round-trip
@@ -224,16 +224,16 @@ belong in the session layer; they do not change the 40-byte layout.
 
 [`vectors.json`](../protocol/vectors.json) contains:
 
-| Name | Type | Purpose |
-| --- | --- | --- |
-| `sample_contact` | `SAMPLE` | Typical contact with tilt |
-| `sample_boundaries` | `SAMPLE` | Maximum field values and flags |
-| `sample_zero` | `SAMPLE` | All-zero payload |
-| `hello` | `HELLO` | Token and capability flags |
-| `hello_ack` | `HELLO_ACK` | Echoed token and host capabilities |
-| `heartbeat` | `HEARTBEAT` | Timestamp payload |
-| `heartbeat_ack` | `HEARTBEAT_ACK` | Timestamp payload |
-| `bye` | `BYE` | Clean shutdown |
+| Name                | Type            | Purpose                            |
+| ------------------- | --------------- | ---------------------------------- |
+| `sample_contact`    | `SAMPLE`        | Typical contact with tilt          |
+| `sample_boundaries` | `SAMPLE`        | Maximum field values and flags     |
+| `sample_zero`       | `SAMPLE`        | All-zero payload                   |
+| `hello`             | `HELLO`         | Token and capability flags         |
+| `hello_ack`         | `HELLO_ACK`     | Echoed token and host capabilities |
+| `heartbeat`         | `HEARTBEAT`     | Timestamp payload                  |
+| `heartbeat_ack`     | `HEARTBEAT_ACK` | Timestamp payload                  |
+| `bye`               | `BYE`           | Clean shutdown                     |
 
 Both implementations decode each vector, compare every field, and re-encode it
 byte for byte. Add a vector whenever a new behavior or field value needs

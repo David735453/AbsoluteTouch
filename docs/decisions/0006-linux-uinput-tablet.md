@@ -24,11 +24,11 @@ everything deterministically.
   `BUS_VIRTUAL`, vendor `0x1209`, product `0x0001`, and version `1`.
 - Expose these axes:
 
-  | Axis | Range | Meaning |
-  | --- | --- | --- |
-  | `ABS_X`, `ABS_Y` | `0..=65535` | Mapped absolute position |
-  | `ABS_PRESSURE` | `0..=65535` | Pressure, zero without contact |
-  | `ABS_TILT_X`, `ABS_TILT_Y` | `-90..=90` | Tilt in degrees |
+  | Axis                       | Range       | Meaning                        |
+  | -------------------------- | ----------- | ------------------------------ |
+  | `ABS_X`, `ABS_Y`           | `0..=65535` | Mapped absolute position       |
+  | `ABS_PRESSURE`             | `0..=65535` | Pressure, zero without contact |
+  | `ABS_TILT_X`, `ABS_TILT_Y` | `-90..=90`  | Tilt in degrees                |
 
 - Expose `BTN_TOOL_PEN`, `BTN_TOOL_RUBBER`, `BTN_TOOL_FINGER`, `BTN_TOUCH`, and
   `BTN_STYLUS`.

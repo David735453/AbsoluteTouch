@@ -36,3 +36,6 @@ xcuserdata/
 .DS_Store
 .idea/
 .vscode/
+
+# Node tooling (Prettier)
+/node_modules/

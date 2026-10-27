@@ -5,12 +5,12 @@ authoritative field table lives in [`docs/protocol.md`](../docs/protocol.md).
 
 ## Files
 
-| File | Purpose |
-| --- | --- |
-| `vectors.json` | Shared golden vectors read by both test suites |
-| `../tools/gen_vectors.py` | Regenerates and checks `vectors.json` |
-| `../desktop/src/protocol/` | Rust encoder and decoder |
-| `../ios/AbsoluteTouchCore/Sources/AbsoluteTouchCore/` | Swift encoder and decoder |
+| File                                                  | Purpose                                        |
+| ----------------------------------------------------- | ---------------------------------------------- |
+| `vectors.json`                                        | Shared golden vectors read by both test suites |
+| `../tools/gen_vectors.py`                             | Regenerates and checks `vectors.json`          |
+| `../desktop/src/protocol/`                            | Rust encoder and decoder                       |
+| `../ios/AbsoluteTouchCore/Sources/AbsoluteTouchCore/` | Swift encoder and decoder                      |
 
 ## Golden vectors
 
