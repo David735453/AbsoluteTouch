@@ -78,11 +78,14 @@ for the simulator, and real behavior is checked with the manual M3 checklist in
 GitHub environment supplies `ASC_KEY_ID`, `ASC_ISSUER_ID`,
 `ASC_KEY_P8_BASE64`, and `APPLE_TEAM_ID`. The same workflow can publish a
 GitHub release of the desktop binaries; the signed IPA stays a TestFlight
-artifact and is not attached to that release.
+artifact and is not attached to that release. The path is validated: a
+`version=0.0.1` dispatch archived, signed, uploaded, and delivered a build
+that installs from TestFlight on an iPad.
 
 ### First TestFlight build
 
-Do these once, in order:
+These steps are already done for this project; they are kept for a new team,
+repository, or bundle identifier. Do these once, in order:
 
 1. **Apple Developer Program** membership is active. Note the ten-character
    team ID on the Membership details page.

@@ -305,7 +305,10 @@ with an older toolchain. Everything else in `ci.yml` runs on standard
 GitHub-hosted runners.
 
 The `testflight` job needs a paid Apple Developer Program membership and
-one-time App Store Connect setup:
+one-time App Store Connect setup. Both are in place here: a `version=0.0.1`
+dispatch archived, signed, uploaded, and produced a build that installs from
+TestFlight on an iPad, so the steps below are known good and only need
+repeating for a new team or bundle identifier.
 
 1. Create an app record with bundle ID `org.dstudios.absolutetouch`.
 2. Create a **team** App Store Connect API key with the **Admin** role

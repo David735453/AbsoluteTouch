@@ -12,16 +12,16 @@ the validated reference.
 
 ## Status
 
-| Area                      | State                                       |
-| ------------------------- | ------------------------------------------- |
-| Protocol + golden vectors | Implemented and tested                      |
-| Desktop Wi-Fi session     | Implemented and tested (M1)                 |
-| Swift core package        | Implemented and tested                      |
-| Linux `uinput` tablet     | Implemented and tested (M2)                 |
-| iPad app + Wi-Fi sender   | Implemented, needs hardware validation (M3) |
-| USB streaming             | Planned (M4)                                |
-| Windows / macOS injection | Planned (M5/M6)                             |
-| TestFlight / releases     | Workflow ready (manual)                     |
+| Area                      | State                                        |
+| ------------------------- | -------------------------------------------- |
+| Protocol + golden vectors | Implemented and tested                       |
+| Desktop Wi-Fi session     | Implemented and tested (M1)                  |
+| Swift core package        | Implemented and tested                       |
+| Linux `uinput` tablet     | Implemented and tested (M2)                  |
+| iPad app + Wi-Fi sender   | Implemented, needs hardware validation (M3)  |
+| USB streaming             | Planned (M4)                                 |
+| Windows / macOS injection | Planned (M5/M6)                              |
+| TestFlight / releases     | TestFlight upload validated; releases manual |
 
 ## Hardware note
 
