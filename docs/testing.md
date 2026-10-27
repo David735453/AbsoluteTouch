@@ -110,7 +110,7 @@ major versions:
 | Tool | Version source |
 | --- | --- |
 | Rust | `rust-toolchain.toml` (`stable`); CI uses `dtolnay/rust-toolchain@stable` |
-| Swift | `swift-tools-version: 6.4`; CI containers use `swift:6.4.1` |
+| Swift | `swift-tools-version: 6.4`; CI installs 6.4.1 with `SwiftyLab/setup-swift@latest` |
 | Xcode | `xcode-27` runner plus `maxim-lobanov/setup-xcode@v1` with `xcode-version: latest` |
 | Ruby | `ruby/setup-ruby@v1` with `ruby-version: "4.0"` |
 | GitHub Actions | newest major tags (`checkout@v7`, `cache@v6`, `upload-artifact@v7`, `download-artifact@v8`, `action-gh-release@v3`) |
@@ -188,8 +188,8 @@ re-enable the schedule from the Actions tab if the nightly stops running.
 
 | Job | What runs |
 | --- | --- |
-| `lint` | Golden vectors, `cargo fmt --check`, `swift format lint --strict` (in `swift:6.4.1`), `ruby -c`, YAML/JSON/plist parse checks, `actionlint` |
-| `linux` | Vector check, Rust fmt/clippy/tests, doctor, Swift format check and Swift core tests in the `swift:6.4.1` container |
+| `lint` | Golden vectors, `cargo fmt --check`, `swift format lint --strict` (Swift 6.4.1), `ruby -c`, YAML/JSON/plist parse checks, `actionlint` |
+| `linux` | Vector check, Rust fmt/clippy/tests, doctor, Swift format check and Swift core tests (Swift 6.4.1) |
 | `linux-arm` | Vector check, Rust fmt/clippy/tests |
 | `windows`, `windows-arm` | Rust fmt/clippy/tests (beta) |
 | `macos` | Rust tests, Swift core tests, `swift format lint --strict`, SwiftLint, XcodeGen, unsigned simulator build |
@@ -221,14 +221,17 @@ autobuild called `swift build` with an older Swift and produced no results.
 | Language | Runner | Build |
 | --- | --- | --- |
 | `actions`, `python`, `ruby` | `ubuntu-26.04` | none |
-| `rust` | `ubuntu-26.04` | autobuild (`cargo build` on `desktop/`) |
-| `swift` | `xcode-27` | manual: Swift 6.4.1 via `SwiftyLab/setup-swift@latest`, then `swift build --package-path ios/AbsoluteTouchCore --disable-sandbox` |
+| `rust` | `ubuntu-26.04` | none (CodeQL v4 has no Rust autobuild) |
+| `swift` | `xcode-27` | manual: `swift build --package-path ios/AbsoluteTouchCore --disable-sandbox` with Xcode's Swift 6.4.2 |
 
 Only the UI-free core is analyzed; the UIKit app shell needs the generated Xcode
-project and is covered by the `macos` job in `ci.yml`. `--disable-sandbox` works
-around SwiftPM's sandbox helper failing under the CodeQL tracer on the arm64
-runner; the package has no build plugins, so the sandbox does not matter here.
-The workflow runs on push to `main`, weekly, and on demand — never on pull
+project and is covered by the `macos` job in `ci.yml`. The Swift job deliberately
+uses Xcode's toolchain instead of the `SwiftyLab/setup-swift` toolchain that the
+`ci.yml` jobs install: the open-source macOS build exposes no `macosx` platform,
+so SwiftPM cannot choose a target platform and the build fails. `--disable-sandbox`
+works around SwiftPM's sandbox helper failing under the CodeQL tracer on the
+arm64 runner; the package has no build plugins, so the sandbox does not matter
+here. The workflow runs on push to `main`, weekly, and on demand — never on pull
 requests — and every job is read-only apart from `security-events: write`.
 
 Reverting to default setup is one API call plus deleting the workflow:
@@ -354,8 +357,8 @@ Deliberately not cached:
   SDK change, and the app is small enough that a clean build is cheaper than a
   wrong one. `ONLY_ACTIVE_ARCH=YES` and `COMPILER_INDEX_STORE_ENABLE=NO` keep
   the clean simulator build short, and the TestFlight archive is Release-only.
-- The `swift:6.4.1` Docker image: a GitHub cache entry is the wrong mechanism,
-  and the runner pulls it in well under a minute.
+- The Swift toolchain: `SwiftyLab/setup-swift` caches the download itself, so a
+  second cache layer would only add a stale copy.
 - Bundler gems: `ios/Gemfile` has no lockfile, so the resolved set changes
   without a cache-key change. Fastlane is installed per TestFlight run, which is
   infrequent.
