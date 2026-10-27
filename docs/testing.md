@@ -84,6 +84,11 @@ a partial toolchain does not block commits. `actionlint` runs from a local
 binary or, when Docker is available, the pinned `rhysd/actionlint:1.7.12` image;
 it is skipped only when neither exists.
 
+Ruby is looked up on `PATH` first and then in the mise, asdf, and rbenv shim
+directories, because those shims are only exported by interactive shell setup
+and hooks run non-interactively. `make lint-ruby` resolves it the same way, so a
+Ruby installed by a version manager is used rather than silently skipped.
+
 SwiftLint is a Swift binary, and Linux toolchains installed by `swiftly` keep
 `libswiftCore.so` outside the default loader path, so a bare `swiftlint` exits
 with `error while loading shared libraries` before it lints anything.

@@ -71,11 +71,20 @@ lint-swiftlint:
 	fi
 
 lint-ruby:
-	@if ! command -v ruby >/dev/null 2>&1; then \
-		printf 'skip  ruby syntax (no ruby on PATH; CI checks it)\n'; \
+	@ruby=$$(command -v ruby 2>/dev/null); \
+	if [ -z "$$ruby" ]; then \
+		for candidate in \
+			"$${MISE_DATA_DIR:-$$HOME/.local/share/mise}/shims/ruby" \
+			"$$HOME/.asdf/shims/ruby" \
+			"$$HOME/.rbenv/shims/ruby"; do \
+			[ -x "$$candidate" ] && ruby=$$candidate && break; \
+		done; \
+	fi; \
+	if [ -z "$$ruby" ]; then \
+		printf 'skip  ruby syntax (no ruby on PATH or in mise/asdf/rbenv shims; CI checks it)\n'; \
 	else \
-		ruby -c ios/Gemfile; \
-		ruby -c ios/fastlane/Fastfile; \
+		"$$ruby" -c ios/Gemfile; \
+		"$$ruby" -c ios/fastlane/Fastfile; \
 	fi
 
 check: hooks

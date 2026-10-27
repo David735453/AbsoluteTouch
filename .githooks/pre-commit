@@ -21,6 +21,23 @@ detail() { printf '%s\n' "$*" | sed 's/^/      /'; }
 
 changed() { printf '%s\n' "$staged" | grep -qE "$1"; }
 
+# Version managers (mise, asdf, rbenv) install shims that are only added to PATH
+# by interactive shell setup, so `command -v ruby` fails in hooks and make even
+# when Ruby is installed. Resolve the binary once instead of rewriting PATH,
+# which would also pull in unrelated tools from the same shim directory.
+ruby_bin=$(command -v ruby 2>/dev/null || true)
+if [ -z "$ruby_bin" ]; then
+    for candidate in \
+        "${MISE_DATA_DIR:-$HOME/.local/share/mise}/shims/ruby" \
+        "$HOME/.asdf/shims/ruby" \
+        "$HOME/.rbenv/shims/ruby"; do
+        if [ -x "$candidate" ]; then
+            ruby_bin=$candidate
+            break
+        fi
+    done
+fi
+
 check_rust() {
     changed '^desktop/.*\.rs$|^desktop/Cargo\.(toml|lock)$' || return 0
     if out=$(cd desktop && cargo fmt --all -- --check 2>&1); then
@@ -97,9 +114,9 @@ check_swiftlint() {
 
 check_workflows() {
     changed '^\.github/workflows/.*\.ya?ml$|^\.github/dependabot\.yml$|^ios/project\.yml$' || return 0
-    if ! command -v ruby >/dev/null 2>&1; then
-        skip "yaml syntax (no ruby on PATH)"
-    elif out=$(ruby -ryaml -e 'ARGV.each { |file| YAML.load_file(file) }' \
+    if [ -z "$ruby_bin" ]; then
+        skip "yaml syntax (no ruby on PATH or in mise/asdf/rbenv shims)"
+    elif out=$("$ruby_bin" -ryaml -e 'ARGV.each { |file| YAML.load_file(file) }' \
         .github/workflows/*.yml .github/dependabot.yml ios/project.yml 2>&1); then
         ok "yaml syntax"
     else
@@ -154,13 +171,13 @@ check_vectors() {
 
 check_ruby() {
     changed '^ios/Gemfile$|^ios/fastlane/Fastfile$' || return 0
-    if ! command -v ruby >/dev/null 2>&1; then
-        skip "ruby syntax (no ruby on PATH)"
+    if [ -z "$ruby_bin" ]; then
+        skip "ruby syntax (no ruby on PATH or in mise/asdf/rbenv shims)"
         return 0
     fi
     for file in ios/Gemfile ios/fastlane/Fastfile; do
         [ -f "$file" ] || continue
-        if out=$(ruby -c "$file" 2>&1); then
+        if out=$("$ruby_bin" -c "$file" 2>&1); then
             ok "ruby -c $file"
         else
             fail "ruby -c $file"
