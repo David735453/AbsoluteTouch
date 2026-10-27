@@ -1,0 +1,50 @@
+name: CodeQL Swift
+
+# Default setup covers actions, python, ruby, and rust. Swift needs advanced
+# setup: the package declares a 6.4 tools-version, so the extractor must trace a
+# build made by a matching toolchain, and autobuild cannot select one. This job
+# installs Swift 6.4.1 and builds the UI-free core, the only Swift target that
+# compiles on Linux. The UIKit app shell needs Xcode and is covered by the macOS
+# job in `ci.yml`.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ios/AbsoluteTouchCore/**"
+      - ".github/workflows/codeql.yml"
+  schedule:
+    # Weekly, a few hours apart from the default-setup schedule.
+    - cron: "43 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-swift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (swift)
+    # CodeQL's Swift extractor is supported on Ubuntu LTS, not on the 26.04 beta.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: SwiftyLab/setup-swift@latest
+        with:
+          swift-version: "6.4.1"
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: swift
+          build-mode: manual
+      - name: Build the Swift core
+        run: swift build --package-path ios/AbsoluteTouchCore
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:swift"

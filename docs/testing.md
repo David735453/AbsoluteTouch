@@ -72,7 +72,7 @@ files:
 | Staged files | Checks |
 | --- | --- |
 | `desktop/**/*.rs`, `desktop/Cargo.toml`, `desktop/Cargo.lock` | `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --all-targets` |
-| `ios/**/*.swift`, `ios/AbsoluteTouchCore/Package.swift` | `swift format lint --strict`, `swift test`, plus `swiftlint` when it can start |
+| `ios/**/*.swift`, `ios/AbsoluteTouchCore/Package.swift` | `swift format lint --strict`, `swift test`, and `swiftlint` (via `tools/swiftlint.sh`) |
 | `.github/workflows/*.yml`, `.github/dependabot.yml`, `ios/project.yml` | Ruby YAML parse, plus `actionlint` (local binary or the pinned Docker image) |
 | `ios/App/**/*.plist`, `ios/App/PrivacyInfo.xcprivacy` | `plistlib` parse |
 | `protocol/`, `tools/gen_vectors.py` | `gen_vectors.py --check` |
@@ -83,6 +83,15 @@ files. Missing tools (`swift`, `swiftlint`, `ruby`) are skipped with a note, so
 a partial toolchain does not block commits. `actionlint` runs from a local
 binary or, when Docker is available, the pinned `rhysd/actionlint:1.7.12` image;
 it is skipped only when neither exists.
+
+SwiftLint is a Swift binary, and Linux toolchains installed by `swiftly` keep
+`libswiftCore.so` outside the default loader path, so a bare `swiftlint` exits
+with `error while loading shared libraries` before it lints anything.
+`tools/swiftlint.sh` derives `LD_LIBRARY_PATH` and `LINUX_SOURCEKIT_LIB_PATH`
+from `swiftc -print-target-info` and execs `swiftlint`, so `make lint-swiftlint`
+and the hook work on Linux and macOS. If `swiftlint` is installed but still
+cannot start, the hook fails instead of skipping, because a silent skip is how a
+`closure_parameter_position` violation reached CI.
 
 Two limits matter:
 
@@ -106,13 +115,17 @@ major versions:
 | Ruby | `ruby/setup-ruby@v1` with `ruby-version: "4.0"` |
 | GitHub Actions | newest major tags (`checkout@v7`, `cache@v6`, `upload-artifact@v7`, `download-artifact@v8`, `action-gh-release@v3`) |
 
-`.github/dependabot.yml` opens weekly, grouped PRs on Monday for three
-ecosystems:
+`.github/dependabot.yml` opens weekly, grouped PRs on Monday for two ecosystems:
 
 - Cargo at `/desktop` (patch and minor in one PR, majors separate).
-- SwiftPM at `/ios/AbsoluteTouchCore`. There are no package dependencies yet, so
-  this starts reporting when the Swift core gains one.
 - GitHub Actions at `/`, one PR per week.
+
+SwiftPM is deliberately absent: the core has no remote dependencies yet, and the
+Dependabot Swift image still ships Swift 6.3.1, so it cannot read the 6.4
+tools-version manifest and every run failed with `using Swift tools version
+6.4.0 but the installed version is 6.3.1`. Re-add the `swift` entry at
+`/ios/AbsoluteTouchCore` when the core gains a dependency and the image is at
+least 6.4; the commented block in `dependabot.yml` is ready to uncomment.
 
 Dependabot does not update the Rust channel, the Swift container image, the
 Xcode selection, or the Ruby version. Change those deliberately and keep the
@@ -191,6 +204,26 @@ the same jobs; the matrix is small enough that this is not worth path filters.
 ```sh
 gh workflow run ci.yml
 gh workflow run ci.yml -f windows=true -f macos=false
+```
+
+### `codeql.yml`
+
+CodeQL default setup covers `actions`, `python`, `ruby`, and `rust`. Swift needs
+advanced setup because the package declares `swift-tools-version: 6.4` and the
+extractor must trace a build made by a matching toolchain; default setup's
+autobuild called `swift build` with an older Swift and failed, so it was dropped
+from the default configuration.
+
+`codeql.yml` analyzes Swift on `ubuntu-24.04` (the extractor's supported LTS),
+installs Swift 6.4.1 with `SwiftyLab/setup-swift@latest`, builds
+`ios/AbsoluteTouchCore`, and uploads results with `github/codeql-action@v4`.
+Only the UI-free core is analyzed; the UIKit app shell needs Xcode and is
+covered by the `macos` job in `ci.yml`. The job needs `security-events: write`
+and nothing else, and it is skipped on pull requests.
+
+```sh
+gh workflow run codeql.yml
+gh api repos/David735453/AbsoluteTouch/code-scanning/alerts --jq '.[].rule.id'
 ```
 
 ### `release.yml`

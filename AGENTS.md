@@ -144,7 +144,7 @@ Linux ARM64 and both Windows targets. `release.yml` stays manual.
 
 ## CI / secrets
 
-- Workflows: `.github/workflows/ci.yml`, `release.yml`.
+- Workflows: `.github/workflows/ci.yml`, `codeql.yml`, `release.yml`.
 - `release.yml` carries the TestFlight toggle; there is no separate workflow.
 - TestFlight secrets live in the `testflight` GitHub environment:
   `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8_BASE64`, `APPLE_TEAM_ID`.
@@ -166,7 +166,7 @@ ios/AbsoluteTouchCore/ Swift package with UI-free logic and tests
 ios/App/               SwiftUI pairing shell and UIKit canvas
 ios/project.yml        XcodeGen project definition
 docs/                  architecture, protocol, setup, testing, ADRs
-.github/workflows/     push/nightly CI and manual release/TestFlight
+.github/workflows/     push/nightly CI, Swift CodeQL, and manual release/TestFlight
 .githooks/             tracked pre-commit hook (enabled by make setup/check/test/lint)
 ```
 

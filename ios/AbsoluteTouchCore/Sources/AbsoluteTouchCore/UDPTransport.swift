@@ -8,6 +8,12 @@
 		case invalidAddress
 	}
 
+	/// Continuation for a `Void`-returning checked continuation.
+	///
+	/// The alias keeps the parameter on the brace line, which both `swift-format`
+	/// and SwiftLint's `closure_parameter_position` accept.
+	private typealias SendContinuation = CheckedContinuation<Void, any Error>
+
 	extension UDPTransportError: LocalizedError {
 		/// A human-readable description of the error.
 		public var errorDescription: String? {
@@ -87,8 +93,7 @@
 			// Spell out the continuation type: the result is discarded, so leaving
 			// it to inference lets Swift 6.4 crash with "failed to produce
 			// diagnostic for expression" instead of choosing `Void`.
-			try await withCheckedThrowingContinuation {
-				(continuation: CheckedContinuation<Void, any Error>) in
+			try await withCheckedThrowingContinuation { (continuation: SendContinuation) in
 				connection.send(
 					content: data,
 					completion: .contentProcessed { error in

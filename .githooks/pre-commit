@@ -76,17 +76,21 @@ check_swift_tests() {
 check_swiftlint() {
     changed '^ios/.*\.swift$' || return 0
     if ! command -v swiftlint >/dev/null 2>&1; then
-        skip "swiftlint (not installed)"
+        skip "swiftlint (not installed; CI runs it on macOS)"
         return 0
     fi
-    if ! swiftlint version >/dev/null 2>&1; then
-        skip "swiftlint (cannot start: check the Swift runtime library path)"
+    # tools/swiftlint.sh puts the Swift runtime on the loader path on Linux.
+    # Without it SwiftLint cannot start and the check used to skip silently,
+    # which let a closure_parameter_position violation reach CI.
+    if ! tools/swiftlint.sh version >/dev/null 2>&1; then
+        fail "swiftlint (installed but cannot start; check the Swift runtime install)"
+        detail "$(tools/swiftlint.sh version 2>&1 | head -5)"
         return 0
     fi
-    if out=$(swiftlint lint --quiet --strict 2>&1); then
+    if out=$(tools/swiftlint.sh lint --quiet --strict 2>&1); then
         ok "swiftlint"
     else
-        fail "swiftlint"
+        fail "swiftlint (run: make lint-swiftlint)"
         detail "$out" | head -20
     fi
 }

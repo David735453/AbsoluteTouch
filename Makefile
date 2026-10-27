@@ -64,14 +64,22 @@ lint-swift:
 	swift format lint --strict --recursive ios/AbsoluteTouchCore ios/App
 
 lint-swiftlint:
-	swiftlint lint --quiet --strict
+	@if ! command -v swiftlint >/dev/null 2>&1; then \
+		printf 'skip  swiftlint (not installed; CI runs it on macOS)\n'; \
+	else \
+		tools/swiftlint.sh lint --quiet --strict; \
+	fi
 
 lint-ruby:
-	ruby -c ios/Gemfile
-	ruby -c ios/fastlane/Fastfile
+	@if ! command -v ruby >/dev/null 2>&1; then \
+		printf 'skip  ruby syntax (no ruby on PATH; CI checks it)\n'; \
+	else \
+		ruby -c ios/Gemfile; \
+		ruby -c ios/fastlane/Fastfile; \
+	fi
 
 check: hooks
-check: check-vectors fmt-check lint lint-swift lint-ruby
+check: check-vectors fmt-check lint lint-swift lint-swiftlint lint-ruby
 
 hooks:
 	@if ! git rev-parse --git-dir >/dev/null 2>&1; then \
