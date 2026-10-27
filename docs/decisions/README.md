@@ -13,6 +13,7 @@ context, the decision, and the consequences.
 | [0006](0006-linux-uinput-tablet.md) | Linux `uinput` absolute tablet layout and event policy |
 | [0007](0007-ios-streaming-session.md) | iPad sender layers, session policy, and pointer pipeline |
 | [0008](0008-linux-pointer-device.md) | Pointer device is the Linux default; tablet mode is opt-in |
+| [0009](0009-bounded-sender-queue.md) | Bounded sender queue, coalesced batches, honest latency counters |
 
 Decisions are changed by adding a new ADR that supersedes the old one, not by
 rewriting history.

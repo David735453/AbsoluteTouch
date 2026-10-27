@@ -3,7 +3,9 @@
 /// The controller is one-shot: ``start()`` begins a session and ``stop()``
 /// finishes it. Create a new controller for the next session. Input is handed
 /// to ``submit(_:)`` synchronously and consumed by an actor task, so the UI
-/// never spawns one task per touch sample.
+/// never spawns one task per touch sample. The queue between the two is
+/// bounded and drained to the newest state, so a slow link cannot accumulate
+/// lag that outlives the stall.
 public actor SessionController {
 	/// Session states, in order. Finishes when the controller stops.
 	public nonisolated let states: AsyncStream<SessionState>
@@ -12,8 +14,7 @@ public actor SessionController {
 	private let clock: ContinuousClock
 	private let origin: ContinuousClock.Instant
 	private let stateContinuation: AsyncStream<SessionState>.Continuation
-	private let sampleStream: AsyncStream<PointerSample>
-	private nonisolated let sampleContinuation: AsyncStream<PointerSample>.Continuation
+	private let mailbox = SampleMailbox()
 
 	private var machine: SessionMachine
 	private var started = false
@@ -40,10 +41,6 @@ public actor SessionController {
 		let (states, stateContinuation) = AsyncStream<SessionState>.makeStream()
 		self.states = states
 		self.stateContinuation = stateContinuation
-
-		let (samples, sampleContinuation) = AsyncStream<PointerSample>.makeStream()
-		self.sampleStream = samples
-		self.sampleContinuation = sampleContinuation
 	}
 
 	/// Current state, available without subscribing to ``states``.
@@ -63,7 +60,7 @@ public actor SessionController {
 	///
 	/// - Parameter sample: The pointer state.
 	public nonisolated func submit(_ sample: PointerSample) {
-		sampleContinuation.yield(sample)
+		mailbox.push(sample)
 	}
 
 	/// Open the transport and begin handshaking.
@@ -142,13 +139,13 @@ public actor SessionController {
 			}
 		}
 
-		let samples = sampleStream
+		let signals = mailbox.signals
 		sampleTask = Task { [weak self] in
-			for await sample in samples {
+			for await _ in signals {
 				guard let self else {
 					return
 				}
-				await self.send(sample)
+				await self.sendQueuedSamples()
 			}
 		}
 	}
@@ -174,12 +171,44 @@ public actor SessionController {
 		await flush()
 	}
 
-	private func send(_ sample: PointerSample) async {
+	private func sendQueuedSamples() async {
 		guard !finished else {
 			return
 		}
-		machine.submit(sample, now: elapsed())
+		let batch = mailbox.drain()
+		guard !batch.isEmpty else {
+			return
+		}
+		let samples = Self.coalesce(batch)
+		machine.noteCoalesced(batch.count - samples.count)
+		for sample in samples {
+			machine.submit(sample, now: elapsed())
+		}
 		await flush()
+	}
+
+	/// Reduce a drained batch to the samples that change the pointer state plus
+	/// the newest position.
+	///
+	/// Every sample carries the complete state, so intermediate coordinates in a
+	/// batch add nothing: the desktop applies them within a fraction of a
+	/// millisecond and only the last position is visible, and the compositor
+	/// samples the cursor once per frame anyway. Sending fewer datagrams keeps
+	/// airtime free for the newest position, so one slow datagram cannot delay
+	/// the next one by a frame.
+	///
+	/// - Parameter batch: Samples in arrival order, newest last.
+	/// - Returns: A subset in the same order that reproduces the same state
+	///   sequence and ends at the newest position.
+	static func coalesce(_ batch: [PointerSample]) -> [PointerSample] {
+		guard let newest = batch.last else {
+			return []
+		}
+		var kept = [newest]
+		for sample in batch.dropLast().reversed() where sample.flags != kept.last?.flags {
+			kept.append(sample)
+		}
+		return kept.reversed()
 	}
 
 	private func flush() async {
@@ -239,7 +268,7 @@ public actor SessionController {
 		receiveTask = nil
 		tickTask = nil
 		sampleTask = nil
-		sampleContinuation.finish()
+		mailbox.finish()
 		stateContinuation.finish()
 		await transport.close()
 	}

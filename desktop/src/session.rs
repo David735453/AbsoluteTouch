@@ -212,6 +212,8 @@ struct Stream {
     last_packet: Instant,
     released: bool,
     seq: SeqWindow,
+    /// Host clock minus device clock, learned from heartbeats.
+    clock_offset_us: Option<i64>,
 }
 
 /// Handshake and data state machine.
@@ -382,6 +384,7 @@ impl<I: SessionIds> Session<I> {
             last_packet: now,
             released: false,
             seq: SeqWindow::default(),
+            clock_offset_us: None,
         });
         self.stats.record_session();
         self.actions.push(Action::SendHelloAck {
@@ -393,7 +396,7 @@ impl<I: SessionIds> Session<I> {
     }
 
     fn on_sample(&mut self, peer: SocketAddr, packet: &Packet, now: Instant) {
-        let Some((_session_id, caps)) = self.active(peer, packet) else {
+        let Some((_session_id, caps, offset)) = self.active(peer, packet) else {
             return;
         };
 
@@ -429,22 +432,51 @@ impl<I: SessionIds> Session<I> {
         let sample = self.sample_from(packet, caps);
         let mapped = self.mapping.map(&sample);
         self.stats.record_sample();
+        if let Some(offset) = offset {
+            // Both clocks count microseconds from an arbitrary origin and wrap
+            // at about 71 minutes, so compare the difference modulo 2^32 and
+            // read it as signed. A stamp slightly ahead of the host clock is a
+            // rounding error in the offset estimate, not negative latency.
+            let device_host_clock = packet.device_time_us.wrapping_add(offset as u32);
+            let age = self.host_us(now).wrapping_sub(device_host_clock) as i32;
+            self.stats.record_sample_age(age.max(0) as u32);
+        }
         self.actions.push(Action::Inject(mapped));
     }
 
     fn on_heartbeat(&mut self, peer: SocketAddr, packet: &Packet, now: Instant) {
-        let Some((session_id, _caps)) = self.active(peer, packet) else {
+        let Some((session_id, _caps, _offset)) = self.active(peer, packet) else {
             return;
         };
         self.keepalive(now);
 
         let host_now = self.host_us(now);
         let echoed_host = u32::from(packet.pressure) | (u32::from(packet.altitude) << 16);
+        let echoed_device = u32::from(packet.x) | (u32::from(packet.y) << 16);
         if echoed_host != 0 {
-            let rtt = host_now.wrapping_sub(echoed_host);
-            let midpoint = echoed_host.wrapping_add(rtt / 2);
+            // The sender echoes the host time of the previous acknowledgement
+            // but only sends its next heartbeat up to a second later, so the
+            // raw difference is mostly heartbeat period. The sender also
+            // reports its own time when that acknowledgement arrived, which
+            // measures the wait on a single clock; subtracting it leaves the
+            // network round trip.
+            let turnaround = host_now.wrapping_sub(echoed_host);
+            let waited = if echoed_device == 0 {
+                0
+            } else {
+                packet.device_time_us.wrapping_sub(echoed_device)
+            };
+            let rtt = if waited < turnaround {
+                turnaround - waited
+            } else {
+                turnaround
+            };
+            let midpoint = host_now.wrapping_sub(rtt / 2);
             let offset = i64::from(packet.device_time_us) - i64::from(midpoint);
             self.stats.record_timing(rtt, offset);
+            if let Some(stream) = &mut self.stream {
+                stream.clock_offset_us = Some(offset);
+            }
         }
 
         let mut ack = Packet::new(PacketType::HeartbeatAck);
@@ -483,7 +515,7 @@ impl<I: SessionIds> Session<I> {
         self.stream = None;
     }
 
-    fn active(&mut self, peer: SocketAddr, packet: &Packet) -> Option<(u32, u16)> {
+    fn active(&mut self, peer: SocketAddr, packet: &Packet) -> Option<(u32, u16, Option<i64>)> {
         let Some(stream) = &self.stream else {
             self.reject(peer, RejectReason::NotStreaming);
             return None;
@@ -497,7 +529,7 @@ impl<I: SessionIds> Session<I> {
             });
             return None;
         }
-        Some((stream.session_id, stream.caps))
+        Some((stream.session_id, stream.caps, stream.clock_offset_us))
     }
 
     fn accept_seq(&mut self, seq: u16) -> SeqResult {
@@ -624,6 +656,11 @@ mod tests {
         packet.seq = seq;
         packet.session_id = 7;
         packet
+    }
+
+    /// Split a 32-bit value into the low and high wire words.
+    fn words(value: u32) -> (u16, u16) {
+        ((value & 0xFFFF) as u16, (value >> 16) as u16)
     }
 
     fn handshake(session: &mut Session<FixedIds>, started: Instant) {
@@ -1066,6 +1103,88 @@ mod tests {
         }
         assert_eq!(session.stats().last_rtt_us, Some(10_000));
         assert_eq!(session.stats().last_offset_us, Some(4_905_000));
+    }
+
+    #[test]
+    fn heartbeat_wait_is_not_counted_as_latency() {
+        let started = Instant::now();
+        let mut session = session(started);
+        handshake(&mut session, started);
+        session.take_actions();
+
+        // The sender saw the previous acknowledgement at 400 ms, waited 990 ms
+        // for its next heartbeat, and sent it at 1_390 ms. Both heartbeats reach
+        // the host a second apart, but the network round trip was 10 ms.
+        let mut packet = Packet::new(PacketType::Heartbeat);
+        packet.seq = 4;
+        packet.session_id = 7;
+        packet.device_time_us = 1_390_000;
+        let (x, y) = words(400_000);
+        packet.x = x;
+        packet.y = y;
+        let echoed_host: u32 = 500_000;
+        packet.pressure = (echoed_host & 0xFFFF) as u16;
+        packet.altitude = (echoed_host >> 16) as u16;
+
+        session.handle(peer(), &packet, started + Duration::from_millis(1_500));
+
+        assert_eq!(session.stats().last_rtt_us, Some(10_000));
+        assert_eq!(session.stats().last_offset_us, Some(-105_000));
+    }
+
+    #[test]
+    fn sample_age_is_measured_once_the_clock_offset_is_known() {
+        let started = Instant::now();
+        let mut session = session(started);
+        handshake(&mut session, started);
+        session.take_actions();
+
+        session.handle(
+            peer(),
+            &sample(1, 100, 200),
+            started + Duration::from_millis(10),
+        );
+        assert_eq!(session.stats().last_sample_age_us, None);
+
+        // Establish an offset of +5000 us: host time 1_000_000, device time
+        // 1_000_000, round trip 10 ms.
+        let mut heartbeat = Packet::new(PacketType::Heartbeat);
+        heartbeat.seq = 2;
+        heartbeat.session_id = 7;
+        heartbeat.device_time_us = 1_000_000;
+        let (x, y) = words(985_000);
+        heartbeat.x = x;
+        heartbeat.y = y;
+        let echoed_host: u32 = 990_000;
+        heartbeat.pressure = (echoed_host & 0xFFFF) as u16;
+        heartbeat.altitude = (echoed_host >> 16) as u16;
+        session.handle(peer(), &heartbeat, started + Duration::from_millis(1_000));
+        assert_eq!(session.stats().last_offset_us, Some(5_000));
+
+        let mut early = sample(3, 100, 200);
+        early.device_time_us = 1_050_000;
+        session.handle(peer(), &early, started + Duration::from_millis(1_056));
+        assert_eq!(session.stats().last_sample_age_us, Some(1_000));
+        assert_eq!(session.stats().worst_sample_age_us, 1_000);
+
+        let mut late = sample(4, 100, 200);
+        late.device_time_us = 1_100_000;
+        session.handle(peer(), &late, started + Duration::from_millis(1_120));
+        assert_eq!(session.stats().last_sample_age_us, Some(15_000));
+
+        let mut fresh = sample(5, 100, 200);
+        fresh.device_time_us = 1_200_000;
+        session.handle(peer(), &fresh, started + Duration::from_millis(1_208));
+        assert_eq!(session.stats().last_sample_age_us, Some(3_000));
+        assert_eq!(session.stats().worst_sample_age_us, 15_000);
+
+        // An offset rounding error can put a stamp a little into the future;
+        // that is no latency, not a wrapped 71-minute age.
+        let mut ahead = sample(6, 100, 200);
+        ahead.device_time_us = 1_300_000;
+        session.handle(peer(), &ahead, started + Duration::from_millis(1_303));
+        assert_eq!(session.stats().last_sample_age_us, Some(0));
+        assert_eq!(session.stats().worst_sample_age_us, 15_000);
     }
 
     #[test]

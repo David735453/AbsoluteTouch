@@ -199,9 +199,10 @@ trusted by the desktop and `usbmuxd` to see the device.
 ## Streaming
 
 The desktop Wi-Fi receiver (M1), the Linux `uinput` backend (M2), and the iPad
-sender (M3) are implemented. The iPad app has not yet been validated on real
-hardware. USB (M4) is still planned, so `--transport usb` and `devices` report
-"not implemented".
+sender (M3) are implemented. The Wi-Fi path has been exercised end to end with
+a real iPad Air and Apple Pencil (USB-C) on Linux; hover and tilt are still
+being validated. USB (M4) is still planned, so `--transport usb` and `devices`
+report "not implemented".
 
 ```sh
 # Normal Linux path: receive over Wi-Fi and inject through uinput
@@ -269,6 +270,39 @@ handshake with the same token, so restarting the desktop does not require
 touching the iPad. The most common failure is a token mismatch: both sides must
 have the same 32 hexadecimal characters. The app accepts pasted text with
 spaces, `-`, or `:` separators.
+
+### Latency
+
+The desktop prints an `input latency` line in the session summary: the age of
+the newest sample when it was injected, measured on the desktop clock after the
+heartbeat offset is known. It covers the sender queue, the network, and the
+receive loop, but not the display pipeline or the game's own frame time.
+
+```text
+input latency: 3800 us last, 41900 us worst
+```
+
+If `worst` is regularly in the tens of milliseconds while `last` is small, the
+link is buffering bursts rather than losing packets. Wi-Fi power saving is the
+usual cause on Linux:
+
+```sh
+iw dev wlan0 get power_save        # "Power save: on" adds up to a beacon of delay
+sudo iw dev wlan0 set power_save off
+```
+
+Make it persistent with `wifi.powersave = 2` in
+`/etc/NetworkManager/conf.d/wifi-powersave-off.conf` and restart
+NetworkManager, or disable power saving for the adapter in the desktop
+environment's settings. A phone hotspot is the other common cause: it
+advertises a long beacon interval and buffers frames for sleeping clients.
+Using the same router as both devices, or waiting for the USB transport (M4),
+avoids it.
+
+The app does not keep a backlog: a burst of samples is coalesced to the newest
+position before it is sent, so a short stall costs one frame rather than
+leaving the cursor trailing behind the Pencil for the rest of the stroke. The
+HUD counts the samples it replaced as `coalesced`.
 
 ### Ports
 
@@ -385,12 +419,13 @@ tablet.
 
 | Symptom | Check |
 | --- | --- |
-| No cursor movement | `doctor`, firewall, correct desktop IP, token, iPad foreground |
+| No cursor movement | `doctor`, firewall, correct desktop IP, token, iPad foreground; then check that `run` was not started with `--dry-run` or `--backend mock`, which never create a device |
 | App stays on **Connecting** | Same network, port 37689, matching token, desktop logs; check the app's token field |
 | **Connecting** for a few seconds after a crash | The desktop still holds the old peer; it clears after the 5000 ms session timeout |
 | App says **Disconnected** | The transport closed: relaunch the app, check Wi-Fi, then start again |
 | Hover works but contact does not | Pencil tip, app foreground, canvas not covered by the HUD |
 | Cursor moves but buttons stick | Stop the desktop; the watchdog should release. Report a bug with a trace |
+| Pointer trails behind the Pencil, or lags in bursts | Check `input latency` in the summary, then Wi-Fi power saving (`iw dev wlan0 get power_save`) and the access point; see [Latency](#latency) |
 | `doctor` says `/dev/uinput` missing | Load the module, fix the udev rule, log out and in |
 | `uinput` is present but not writable | Recheck the udev rule and group membership; `newgrp input` or log in again |
 | No **AbsoluteTouch Pointer** (or **Tablet**) device | The session process must be running; check `/proc/bus/input/devices` and the `device` setting |

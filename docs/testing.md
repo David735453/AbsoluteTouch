@@ -13,7 +13,7 @@ compile.
 | CLI tests | Argument parsing and defaults | `desktop/src/cli.rs` |
 | Config tests | Defaults, precedence, validation, example file | `desktop/src/config.rs` |
 | Mapping tests | Stretch, offset, letterbox, flag passthrough | `desktop/src/mapping.rs` |
-| Session tests | Handshake, token, peer pin, sequence window, heartbeat, watchdog | `desktop/src/session.rs` |
+| Session tests | Handshake, token, peer pin, sequence window, heartbeat, watchdog, clock offset and sample age | `desktop/src/session.rs` |
 | Injector tests (mock) | Exact event sequences through `MockInjector` | `desktop/src/inject/mock.rs` |
 | Injector tests (Linux) | Frames, tilt, tool switching, release; real device when permitted | `desktop/src/inject/linux.rs` |
 | Trace tests | Round-trip, offsets, truncation, corrupt packets | `desktop/src/transport/trace.rs` |
@@ -22,6 +22,7 @@ compile.
 | Swift core tests | Same protocol and vectors as Rust | `ios/AbsoluteTouchCore/Tests/` |
 | Swift session tests | Handshake, heartbeat RTT, timeout re-handshake, sequence wrap | `ios/AbsoluteTouchCore/Tests/AbsoluteTouchCoreTests/SessionMachineTests.swift` |
 | Swift controller tests | Fake datagram transport, state stream, failure, `BYE` | `ios/AbsoluteTouchCore/Tests/AbsoluteTouchCoreTests/SessionControllerTests.swift` |
+| Swift mailbox tests | Bounded buffer, drop-oldest, one wakeup per burst, coalescing keeps state changes | `ios/AbsoluteTouchCore/Tests/AbsoluteTouchCoreTests/SampleMailboxTests.swift` |
 | Swift pointer tests | Coordinate/angle normalization, phase flags, token parsing | `PointerSampleTests.swift`, `PairingTokenTests.swift` |
 | Manual hardware tests | Real Pencil, real backend, real OS | Checklist below |
 
@@ -411,6 +412,9 @@ backend, transport, iPad model, and Pencil model to the result.
       keys in `/proc/bus/input/devices` and `libinput list-devices`.
 - [ ] Moving the Pencil moves the desktop cursor in pointer mode on the session
       type under test (Wayland or X11).
+- [ ] `input latency` in the summary stays under one frame (about 17 ms) for a
+      whole stroke, and the `worst` value is recorded with the machine, OS, and
+      access point in the result.
 - [ ] `HELLO` / `HELLO_ACK` completes within one second.
 - [ ] A wrong token is rejected and logged.
 - [ ] A second iPad with the wrong token or source IP cannot take over.

@@ -57,6 +57,19 @@ private func streamingMachine(
 	return machine
 }
 
+/// Split a 32-bit value into the two wire words used by heartbeat payloads.
+func lowWord(_ value: UInt32) -> UInt16 {
+	UInt16(truncatingIfNeeded: value)
+}
+
+func highWord(_ value: UInt32) -> UInt16 {
+	UInt16(truncatingIfNeeded: value >> 16)
+}
+
+func word(low: UInt16, high: UInt16) -> UInt32 {
+	UInt32(low) | (UInt32(high) << 16)
+}
+
 @Suite("Session machine")
 struct SessionMachineTests {
 	@Test("Start queues a HELLO with the token and device capabilities")
@@ -192,6 +205,19 @@ struct SessionMachineTests {
 		#expect(machine.statistics.samplesSent == 2)
 	}
 
+	@Test("Coalesced samples are counted without changing the sequence")
+	func coalescedSamplesAreCounted() throws {
+		var machine = try streamingMachine()
+		machine.takeOutbound()
+
+		machine.noteCoalesced(3)
+		machine.noteCoalesced(0)
+
+		#expect(machine.statistics.samplesCoalesced == 3)
+		#expect(machine.statistics.samplesSent == 0)
+		#expect(machine.takeOutbound().isEmpty)
+	}
+
 	@Test("Out-of-range and finger flags are preserved")
 	func outOfRangeFlagsArePreserved() throws {
 		var machine = try streamingMachine()
@@ -227,10 +253,10 @@ struct SessionMachineTests {
 
 		var ack = Packet(type: .heartbeatAck)
 		ack.sessionID = 42
-		ack.x = Self.lowWord(heartbeat.deviceTimeMicroseconds)
-		ack.y = Self.highWord(heartbeat.deviceTimeMicroseconds)
-		ack.pressure = Self.lowWord(5_000_000)
-		ack.altitude = Self.highWord(5_000_000)
+		ack.x = lowWord(heartbeat.deviceTimeMicroseconds)
+		ack.y = highWord(heartbeat.deviceTimeMicroseconds)
+		ack.pressure = lowWord(5_000_000)
+		ack.altitude = highWord(5_000_000)
 		machine.receive(ack, now: .milliseconds(1_100))
 
 		#expect(machine.statistics.heartbeatsReceived == 1)
@@ -242,8 +268,8 @@ struct SessionMachineTests {
 		#expect(packets.count == 1)
 		let next = packets[0]
 		#expect(next.sequence == 1)
-		#expect(Self.word(low: next.x, high: next.y) == 1_100_000)
-		#expect(Self.word(low: next.pressure, high: next.altitude) == 5_000_000)
+		#expect(word(low: next.x, high: next.y) == 1_100_000)
+		#expect(word(low: next.pressure, high: next.altitude) == 5_000_000)
 	}
 
 	@Test("Silence for the session timeout starts a new handshake")
@@ -354,17 +380,5 @@ struct SessionMachineTests {
 
 		machine.submit(contactSample(), now: .zero)
 		#expect(machine.takeOutbound()[0].sequence == 0)
-	}
-
-	private static func lowWord(_ value: UInt32) -> UInt16 {
-		UInt16(truncatingIfNeeded: value)
-	}
-
-	private static func highWord(_ value: UInt32) -> UInt16 {
-		UInt16(truncatingIfNeeded: value >> 16)
-	}
-
-	private static func word(low: UInt16, high: UInt16) -> UInt32 {
-		UInt32(low) | (UInt32(high) << 16)
 	}
 }

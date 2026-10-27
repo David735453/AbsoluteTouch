@@ -168,6 +168,13 @@ payload pair lets each side echo the other's timestamp and estimate round-trip
 time and clock offset. Heartbeats are sent about once per second; exact timing
 is a session policy, not part of the wire format.
 
+The echoed host time is up to one heartbeat period old, so the raw difference
+between it and the arrival of the next `HEARTBEAT` is mostly waiting, not
+network time. The desktop therefore subtracts the sender's own wait, measured
+with `x`/`y`, before recording a round trip. A trace that shows about one
+second of "RTT" is a measurement bug, not a slow link; the true round trip on
+a local Wi-Fi link is a few milliseconds.
+
 ### `BYE`
 
 Ends the session cleanly. It carries no payload. The iPad sends it when the app

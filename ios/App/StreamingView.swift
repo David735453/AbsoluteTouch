@@ -152,6 +152,9 @@ struct StreamingView: View {
 
 	private var statisticsText: String {
 		var parts = ["\(viewModel.statistics.samplesSent) samples"]
+		if viewModel.statistics.samplesCoalesced > 0 {
+			parts.append("\(viewModel.statistics.samplesCoalesced) coalesced")
+		}
 		if let roundTrip = viewModel.statistics.lastRoundTripMicroseconds {
 			parts.append(String(format: "%.1f ms RTT", Double(roundTrip) / 1_000))
 		}

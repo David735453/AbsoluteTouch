@@ -146,6 +146,16 @@ public struct SessionMachine: Sendable {
 		lastHeartbeat = nil
 	}
 
+	/// Count samples that a newer position made redundant before sending.
+	///
+	/// - Parameter count: Samples dropped from a coalesced batch.
+	mutating func noteCoalesced(_ count: Int) {
+		guard count > 0 else {
+			return
+		}
+		statistics.samplesCoalesced += count
+	}
+
 	/// Remove and return every queued outgoing packet.
 	///
 	/// - Returns: Packets in the order they were produced.

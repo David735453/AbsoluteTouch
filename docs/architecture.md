@@ -101,6 +101,11 @@ receiver thread plus a tight session loop is simpler to reason about than a
 task graph, and the polled socket doubles as the idle wait. Later backends can
 change this if measurements justify it.
 
+Heartbeats carry the host and device timestamps needed to align the two clocks,
+so the session also reports `input latency`: the age of each injected sample in
+host time. The counter is what turns "it sometimes lags" into a number, and it
+is the measurement to quote in a bug report.
+
 ### Recording and replay
 
 `--record FILE` writes every inbound packet, including packets the session
@@ -209,8 +214,14 @@ The app uses Swift 6 language mode with strict concurrency:
 - One `SessionController` actor per session owns the transport, state machine,
   and sequence counter. It is one-shot: starting a new session creates a new
   actor.
-- The canvas calls a `nonisolated` `submit`, which yields into an `AsyncStream`.
-  One actor task drains it, so the UI never spawns a task per touch sample.
+- The canvas calls a `nonisolated` `submit`, which pushes into a bounded
+  `SampleMailbox`. One actor task drains it, so the UI never spawns a task per
+  touch sample and a slow link cannot accumulate latency.
+- A drained batch is coalesced to the samples that change the pointer state
+  plus the newest position. Every sample carries the complete state, so the
+  desktop can skip intermediate coordinates without losing a press, a release,
+  or a hover transition. This keeps each drain to one or two datagrams instead
+  of one per coalesced touch.
 - Separate actor tasks receive datagrams and run a 20 ms timer. Outgoing packets
   are flushed in order from whichever task produced them.
 - The UI consumes `AsyncStream<SessionState>` and samples statistics at 4 Hz. It

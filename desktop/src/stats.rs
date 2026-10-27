@@ -41,6 +41,10 @@ pub struct Stats {
     pub last_rtt_us: Option<u32>,
     /// Most recent clock-offset estimate in microseconds.
     pub last_offset_us: Option<i64>,
+    /// Most recent end-to-end sample age in microseconds.
+    pub last_sample_age_us: Option<u32>,
+    /// Largest end-to-end sample age seen in this session.
+    pub worst_sample_age_us: u32,
 }
 
 impl fmt::Display for Stats {
@@ -75,6 +79,13 @@ impl fmt::Display for Stats {
         }
         if let Some(offset) = self.last_offset_us {
             writeln!(formatter, "last clock offset: {offset} us")?;
+        }
+        if let Some(age) = self.last_sample_age_us {
+            writeln!(
+                formatter,
+                "input latency: {} us last, {} us worst",
+                age, self.worst_sample_age_us,
+            )?;
         }
         Ok(())
     }
@@ -171,6 +182,27 @@ impl Stats {
         self.last_rtt_us = Some(rtt_us);
         self.last_offset_us = Some(offset_us);
     }
+
+    /// Largest sample age accepted as a measurement, in microseconds.
+    ///
+    /// Anything older is a clock jump or an unrelated basestation, not a sample
+    /// the user is waiting for.
+    pub const MAX_SAMPLE_AGE_US: u32 = 1_000_000;
+
+    /// Record the age of one sample, measured on the host clock.
+    ///
+    /// # Panics
+    ///
+    /// Never panics; ages over [`Self::MAX_SAMPLE_AGE_US`] are ignored.
+    pub const fn record_sample_age(&mut self, age_us: u32) {
+        if age_us > Self::MAX_SAMPLE_AGE_US {
+            return;
+        }
+        self.last_sample_age_us = Some(age_us);
+        if age_us > self.worst_sample_age_us {
+            self.worst_sample_age_us = age_us;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -183,6 +215,7 @@ mod tests {
         stats.record_packet();
         stats.record_sample();
         stats.record_timing(1_500, -250);
+        stats.record_sample_age(2_000);
 
         let text = stats.to_string();
 
@@ -190,6 +223,18 @@ mod tests {
         assert!(text.contains("1 injected"));
         assert!(text.contains("1500 us"));
         assert!(text.contains("-250 us"));
+        assert!(text.contains("input latency: 2000 us last, 2000 us worst"));
+    }
+
+    #[test]
+    fn sample_age_keeps_the_worst_and_ignores_nonsense() {
+        let mut stats = Stats::default();
+        stats.record_sample_age(4_000);
+        stats.record_sample_age(1_500);
+        stats.record_sample_age(Stats::MAX_SAMPLE_AGE_US + 1);
+
+        assert_eq!(stats.last_sample_age_us, Some(1_500));
+        assert_eq!(stats.worst_sample_age_us, 4_000);
     }
 
     #[test]

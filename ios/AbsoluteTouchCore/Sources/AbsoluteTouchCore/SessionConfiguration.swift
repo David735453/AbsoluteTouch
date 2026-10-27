@@ -54,6 +54,9 @@ public struct SessionStatistics: Sendable, Equatable {
 	/// `SAMPLE` packets sent.
 	public internal(set) var samplesSent = 0
 
+	/// Samples dropped because a newer position superseded them before sending.
+	public internal(set) var samplesCoalesced = 0
+
 	/// `HEARTBEAT` packets sent.
 	public internal(set) var heartbeatsSent = 0
 
