@@ -87,6 +87,8 @@ swiftlint lint --quiet --strict
 xcodegen generate --spec ios/project.yml
 
 # Repository helpers
+make setup
+make toolchain
 make check
 make test
 make lint
@@ -96,6 +98,17 @@ make lint-ruby
 make hooks
 make doctor
 ```
+
+`make setup` enables the tracked pre-commit hook and prints the next commands;
+`make check`, `make test`, and `make lint` also enable it, so a fresh clone gets
+the hook automatically. The hook runs rustfmt, clippy, `cargo test`, swift-format,
+`swift test`, workflow YAML and plist parsing, golden vectors, and Ruby syntax for
+the staged areas. `make toolchain` updates stable Rust and its `rustfmt`/`clippy`
+components; `rust-toolchain.toml` selects the `stable` channel.
+
+`.github/dependabot.yml` opens weekly grouped PRs for Cargo, SwiftPM, and GitHub
+Actions. Merge them only after CI is green, and move to a new action major or
+toolchain deliberately rather than pinning an old one.
 
 `ci.yml` runs on every push to `main`, nightly (`17 4 * * *`), and on manual
 dispatch. Pushes run Linux x86_64, macOS/iOS, and lint; the nightly also covers
@@ -154,7 +167,7 @@ ios/App/               SwiftUI pairing shell and UIKit canvas
 ios/project.yml        XcodeGen project definition
 docs/                  architecture, protocol, setup, testing, ADRs
 .github/workflows/     push/nightly CI and manual release/TestFlight
-.githooks/             tracked pre-commit hook (enable with make hooks)
+.githooks/             tracked pre-commit hook (enabled by make setup/check/test/lint)
 ```
 
 Do not edit the generated `ios/AbsoluteTouch.xcodeproj`; edit `ios/project.yml`

@@ -1,8 +1,9 @@
 #!/bin/sh
-# Fast checks for staged files only. CI and `make check` run the full suite.
+# Staged-file checks for local commits. CI runs the full matrix.
 #
-# Install with `make hooks`. This hook never rewrites files: it reports what is
-# wrong and the make target that fixes it.
+# Install with `make hooks` (or any of `make setup`, `make check`, `make test`,
+# `make lint`). This hook never rewrites files: it reports what is wrong and the
+# make target that fixes it.
 
 set -u
 
@@ -21,12 +22,24 @@ detail() { printf '%s\n' "$*" | sed 's/^/      /'; }
 changed() { printf '%s\n' "$staged" | grep -qE "$1"; }
 
 check_rust() {
-    changed '^desktop/.*\.rs$|^desktop/Cargo\.toml$' || return 0
+    changed '^desktop/.*\.rs$|^desktop/Cargo\.(toml|lock)$' || return 0
     if out=$(cd desktop && cargo fmt --all -- --check 2>&1); then
         ok "rustfmt"
     else
         fail "rustfmt (run: make fmt)"
         detail "$out" | head -20
+    fi
+    if out=$(cd desktop && cargo clippy --all-targets -- -D warnings 2>&1); then
+        ok "cargo clippy"
+    else
+        fail "cargo clippy (run: make lint)"
+        detail "$out" | head -20
+    fi
+    if out=$(cd desktop && cargo test --all-targets 2>&1); then
+        ok "cargo test"
+    else
+        fail "cargo test (run: make test-rust)"
+        detail "$out" | tail -30
     fi
 }
 
@@ -41,6 +54,22 @@ check_swift_format() {
     else
         fail "swift format (run: make fmt-swift)"
         detail "$out" | head -20
+    fi
+}
+
+check_swift_tests() {
+    changed '^ios/.*\.swift$|^ios/AbsoluteTouchCore/Package\.swift$' || return 0
+    if ! command -v swift >/dev/null 2>&1; then
+        skip "swift test (no swift on PATH)"
+        return 0
+    fi
+    # Files behind `#if canImport(Network)`, such as UDPTransport, only compile
+    # on Apple platforms; the macOS CI job is the first real compiler pass.
+    if out=$(swift test --package-path ios/AbsoluteTouchCore 2>&1); then
+        ok "swift test"
+    else
+        fail "swift test (run: make test-swift)"
+        detail "$out" | tail -30
     fi
 }
 
@@ -60,6 +89,53 @@ check_swiftlint() {
         fail "swiftlint"
         detail "$out" | head -20
     fi
+}
+
+check_workflows() {
+    changed '^\.github/workflows/.*\.ya?ml$|^\.github/dependabot\.yml$|^ios/project\.yml$' || return 0
+    if ! command -v ruby >/dev/null 2>&1; then
+        skip "yaml syntax (no ruby on PATH)"
+    elif out=$(ruby -ryaml -e 'ARGV.each { |file| YAML.load_file(file) }' \
+        .github/workflows/*.yml .github/dependabot.yml ios/project.yml 2>&1); then
+        ok "yaml syntax"
+    else
+        fail "yaml syntax"
+        detail "$out"
+    fi
+    if ! command -v actionlint >/dev/null 2>&1 && ! command -v docker >/dev/null 2>&1; then
+        skip "actionlint (not installed)"
+    elif command -v actionlint >/dev/null 2>&1; then
+        if out=$(actionlint -ignore 'label ".*" is unknown' 2>&1); then
+            ok "actionlint"
+        else
+            fail "actionlint"
+            detail "$out" | head -30
+        fi
+    elif out=$(docker run --rm \
+        -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 \
+        -ignore 'label ".*" is unknown' -color 2>&1); then
+        ok "actionlint"
+    else
+        fail "actionlint"
+        detail "$out" | head -30
+    fi
+}
+
+check_plists() {
+    changed '^ios/App/.*\.plist$|^ios/App/.*\.xcprivacy$' || return 0
+    if ! command -v python3 >/dev/null 2>&1; then
+        skip "plist syntax (no python3 on PATH)"
+        return 0
+    fi
+    for file in ios/App/Info.plist ios/App/PrivacyInfo.xcprivacy; do
+        [ -f "$file" ] || continue
+        if out=$(python3 -c 'import plistlib, sys; plistlib.load(open(sys.argv[1], "rb"))' "$file" 2>&1); then
+            ok "plist $file"
+        else
+            fail "plist $file"
+            detail "$out"
+        fi
+    done
 }
 
 check_vectors() {
@@ -91,7 +167,10 @@ check_ruby() {
 
 check_rust
 check_swift_format
+check_swift_tests
 check_swiftlint
+check_workflows
+check_plists
 check_vectors
 check_ruby
 

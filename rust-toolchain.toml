@@ -1,0 +1,6 @@
+# Follow the newest stable Rust release, the same channel CI installs.
+# Run `make toolchain` to update the local install and its components.
+[toolchain]
+channel = "stable"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

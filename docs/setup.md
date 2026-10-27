@@ -39,14 +39,22 @@ missing; use the report to fix the environment.
 Repository helpers:
 
 ```sh
+make setup      # enable the tracked pre-commit hook
+make toolchain  # update stable Rust and its rustfmt/clippy components
 make test       # Rust + Swift core tests
 make check      # formatting, lints, and vector check
 make lint       # cargo clippy with warnings as errors
 make fmt        # cargo fmt
 make fmt-check  # formatting check only
-make hooks      # enable the tracked pre-commit hook
+make hooks      # enable the tracked pre-commit hook (idempotent)
 make doctor     # CLI environment report
 ```
+
+`make setup`, `make check`, `make test`, and `make lint` enable the hook
+automatically, so a fresh clone gets the staged-file checks the first time it
+runs any of them. The hook runs rustfmt, clippy, Rust tests, swift-format, Swift
+tests, workflow YAML parsing, golden vectors, and Ruby syntax for the staged
+areas; `make hooks-off` disables it.
 
 ### Configuration and environment
 

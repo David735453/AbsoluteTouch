@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -73,17 +73,26 @@ jobs:
             swift format lint --strict --recursive ios/AbsoluteTouchCore ios/App
       - uses: ruby/setup-ruby@v1
         with:
-          ruby-version: "3.4"
+          ruby-version: "4.0"
       - name: Ruby and config syntax
         run: |
           set -euo pipefail
           ruby -c ios/Gemfile
           ruby -c ios/fastlane/Fastfile
           ruby -ryaml -e 'ARGV.each { |file| YAML.load_file(file) }' \
-            .github/workflows/*.yml ios/project.yml
+            .github/workflows/*.yml .github/dependabot.yml ios/project.yml
           ruby -rjson -e 'JSON.parse(File.read("protocol/vectors.json"))'
           python3 -c 'import plistlib, sys; plistlib.load(open(sys.argv[1], "rb"))' ios/App/Info.plist
           python3 -c 'import plistlib, sys; plistlib.load(open(sys.argv[1], "rb"))' ios/App/PrivacyInfo.xcprivacy
+      - name: Workflow lint
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD:/repo" \
+            -w /repo \
+            rhysd/actionlint:1.7.12 \
+            -ignore 'label ".*" is unknown' \
+            -color
 
   linux:
     name: Linux x86_64
@@ -91,7 +100,7 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -149,7 +158,7 @@ jobs:
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -174,7 +183,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -197,7 +206,7 @@ jobs:
     runs-on: windows-11-arm
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -223,7 +232,7 @@ jobs:
       HOMEBREW_NO_AUTO_UPDATE: "1"
       HOMEBREW_NO_INSTALL_CLEANUP: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -240,14 +249,14 @@ jobs:
         with:
           workspaces: desktop
       - name: Cache Homebrew downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/Library/Caches/Homebrew/downloads
           key: homebrew-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/ci.yml', '.github/workflows/release.yml') }}
           restore-keys: |
             homebrew-${{ runner.os }}-${{ runner.arch }}-
       - name: Cache SwiftPM build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ios/AbsoluteTouchCore/.build
           key: swiftpm-${{ runner.os }}-${{ runner.arch }}-swift-6.4-v1-${{ hashFiles('ios/AbsoluteTouchCore/Package.swift') }}

@@ -29,6 +29,8 @@ compile.
 
 ```sh
 # Everything that runs on Linux
+make setup        # enable the tracked pre-commit hook
+make toolchain    # update stable Rust and its clippy/rustfmt components
 make check        # vectors, rustfmt, clippy, swift-format, ruby -c
 make test
 make doctor
@@ -61,21 +63,62 @@ A change is not ready when any of these fails locally.
 
 ## Local pre-commit hook
 
-`make hooks` points `core.hooksPath` at `.githooks/`, so the tracked
-`.githooks/pre-commit` runs on every commit. `make hooks-off` restores the
-default. The hook only looks at staged files:
+`make setup` points `core.hooksPath` at `.githooks/`; `make check`, `make test`,
+and `make lint` do the same, so a fresh clone gets the hook the first time it
+runs one of the project commands. `make hooks` is the explicit, idempotent
+target, and `make hooks-off` restores the default. The hook only looks at staged
+files:
 
-| Staged files | Check |
+| Staged files | Checks |
 | --- | --- |
-| `desktop/**/*.rs`, `desktop/Cargo.toml` | `cargo fmt --check` |
-| `ios/**/*.swift` | `swift format lint --strict`, plus `swiftlint` when it can start |
+| `desktop/**/*.rs`, `desktop/Cargo.toml`, `desktop/Cargo.lock` | `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --all-targets` |
+| `ios/**/*.swift`, `ios/AbsoluteTouchCore/Package.swift` | `swift format lint --strict`, `swift test`, plus `swiftlint` when it can start |
+| `.github/workflows/*.yml`, `.github/dependabot.yml`, `ios/project.yml` | Ruby YAML parse, plus `actionlint` (local binary or the pinned Docker image) |
+| `ios/App/**/*.plist`, `ios/App/PrivacyInfo.xcprivacy` | `plistlib` parse |
 | `protocol/`, `tools/gen_vectors.py` | `gen_vectors.py --check` |
 | `ios/Gemfile`, `ios/fastlane/Fastfile` | `ruby -c` |
 
 The hook reports problems and the make target that fixes them; it never rewrites
-files. Missing tools (`swift`, `swiftlint`, `ruby`) are skipped with a note, so a
-partial toolchain does not block commits. CI always runs the checks, so a skip
-locally cannot slip through.
+files. Missing tools (`swift`, `swiftlint`, `ruby`) are skipped with a note, so
+a partial toolchain does not block commits. `actionlint` runs from a local
+binary or, when Docker is available, the pinned `rhysd/actionlint:1.7.12` image;
+it is skipped only when neither exists.
+
+Two limits matter:
+
+- Files behind `#if canImport(Network)`, such as `UDPTransport.swift`, do not
+  compile on Linux, so only the macOS CI job type-checks them. A green Linux
+  hook does not prove the Apple-only sources compile.
+- Rust lints change between releases. The hook uses the local stable toolchain,
+  which must be as new as CI's; `make toolchain` runs `rustup update stable` and
+  installs `rustfmt`/`clippy`, and `rust-toolchain.toml` selects `stable`.
+
+## Toolchains and dependency updates
+
+The repository follows the newest supported releases rather than pinning old
+major versions:
+
+| Tool | Version source |
+| --- | --- |
+| Rust | `rust-toolchain.toml` (`stable`); CI uses `dtolnay/rust-toolchain@stable` |
+| Swift | `swift-tools-version: 6.4`; CI containers use `swift:6.4.1` |
+| Xcode | `xcode-27` runner plus `maxim-lobanov/setup-xcode@v1` with `xcode-version: latest` |
+| Ruby | `ruby/setup-ruby@v1` with `ruby-version: "4.0"` |
+| GitHub Actions | newest major tags (`checkout@v7`, `cache@v6`, `upload-artifact@v7`, `download-artifact@v8`, `action-gh-release@v3`) |
+
+`.github/dependabot.yml` opens weekly, grouped PRs on Monday for three
+ecosystems:
+
+- Cargo at `/desktop` (patch and minor in one PR, majors separate).
+- SwiftPM at `/ios/AbsoluteTouchCore`. There are no package dependencies yet, so
+  this starts reporting when the Swift core gains one.
+- GitHub Actions at `/`, one PR per week.
+
+Dependabot does not update the Rust channel, the Swift container image, the
+Xcode selection, or the Ruby version. Change those deliberately and keep the
+table and the caches in the workflows in sync. `Cargo.lock` is committed and
+Dependabot refreshes it; SwiftPM has no `Package.resolved` because the package
+has no remote dependencies.
 
 ## Formatting rules
 
@@ -132,7 +175,7 @@ re-enable the schedule from the Actions tab if the nightly stops running.
 
 | Job | What runs |
 | --- | --- |
-| `lint` | Golden vectors, `cargo fmt --check`, `swift format lint --strict` (in `swift:6.4.1`), `ruby -c`, YAML/JSON/plist parse checks |
+| `lint` | Golden vectors, `cargo fmt --check`, `swift format lint --strict` (in `swift:6.4.1`), `ruby -c`, YAML/JSON/plist parse checks, `actionlint` |
 | `linux` | Vector check, Rust fmt/clippy/tests, doctor, Swift format check and Swift core tests in the `swift:6.4.1` container |
 | `linux-arm` | Vector check, Rust fmt/clippy/tests |
 | `windows`, `windows-arm` | Rust fmt/clippy/tests (beta) |

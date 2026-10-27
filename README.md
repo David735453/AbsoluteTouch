@@ -44,11 +44,18 @@ later; the host substitutes a configurable level when pressure is unavailable.
 git clone https://github.com/David735453/AbsoluteTouch.git
 cd AbsoluteTouch
 
+make setup         # enable the tracked pre-commit hook
+make toolchain     # update stable Rust and its clippy/rustfmt components
 make test          # Rust + Swift core tests
 make check         # formatting, lints, vectors, Ruby syntax
-make hooks         # enable the tracked pre-commit hook
 make doctor        # CLI environment report
 ```
+
+`make setup`, `make check`, `make test`, and `make lint` all enable the tracked
+hook, so a fresh clone gets the staged-file checks the first time it runs any of
+them. The hook runs rustfmt, clippy, Rust tests, swift-format, Swift tests,
+workflow YAML and plist parsing, golden vectors, and Ruby syntax for the staged
+areas; `make hooks-off` disables it.
 
 Run a session:
 
