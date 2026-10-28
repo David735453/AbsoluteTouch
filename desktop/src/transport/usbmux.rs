@@ -227,7 +227,9 @@ impl Daemon {
     /// Ask the daemon to open a connection to `port` inside `device_id`.
     ///
     /// On success the returned stream is a raw pipe to the iPad. This consumes
-    /// the daemon connection because the socket stops speaking frames.
+    /// the daemon connection because the socket stops speaking frames. The
+    /// stream keeps the handshake timeouts, so a caller that blocks on it must
+    /// set its own read timeout (the USB runner uses its tick timeout).
     ///
     /// # Errors
     ///
@@ -252,8 +254,6 @@ impl Daemon {
         check(reply.result)?;
 
         // The daemon is done framing; the iPad app's bytes follow directly.
-        self.stream.set_read_timeout(None)?;
-        self.stream.set_write_timeout(None)?;
         Ok(self.stream)
     }
 
