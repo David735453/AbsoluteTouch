@@ -13,10 +13,15 @@ struct ContentView: View {
 	@Environment(\.scenePhase) private var scenePhase
 
 	@AppStorage("absoluteTouch.host") private var host = ""
+	@AppStorage("absoluteTouch.transport") private var transportRaw = TransportChoice.wifi.rawValue
 	@AppStorage("absoluteTouch.port") private var portText = String(
 		ConnectionSettings.defaultPort
 	)
 	@AppStorage("absoluteTouch.token") private var tokenText = ""
+
+	private var transport: TransportChoice {
+		TransportChoice(rawValue: transportRaw) ?? .wifi
+	}
 
 	var body: some View {
 		Group {
@@ -32,7 +37,7 @@ struct ContentView: View {
 		}
 		.onAppear {
 			if tokenText.isEmpty {
-				tokenText = PairingToken.random().hex
+				tokenText = PairingCode.random()
 			}
 		}
 		.onChange(of: scenePhase) { _, phase in
@@ -51,9 +56,9 @@ struct ContentView: View {
 				VStack(alignment: .leading, spacing: 20) {
 					header
 					pairingCard
-					howToCard
-					protocolCard
-					footer
+					HowToCard(transport: transport)
+					ProtocolCard()
+					SetupFooter()
 				}
 				.padding(24)
 				.frame(maxWidth: 680, alignment: .leading)
@@ -75,7 +80,7 @@ struct ContentView: View {
 				.font(.title2.weight(.semibold))
 				.fixedSize(horizontal: false, vertical: true)
 
-			Text("Enter the desktop's address and pairing token, then start streaming.")
+			Text("Enter the desktop's address or connect by cable, then enter the pairing code.")
 				.font(.subheadline)
 				.foregroundStyle(.secondary)
 				.fixedSize(horizontal: false, vertical: true)
@@ -87,36 +92,56 @@ struct ContentView: View {
 			Text("Desktop")
 				.font(.headline)
 
-			field("Address") {
-				TextField("192.0.2.10", text: $host)
-					.textFieldStyle(.roundedBorder)
-					.keyboardType(.URL)
-					.textInputAutocapitalization(.never)
-					.autocorrectionDisabled()
-					.submitLabel(.next)
+			Picker(
+				"Transport",
+				selection: Binding(
+					get: { transport },
+					set: { choice in
+						transportRaw = choice.rawValue
+						// Switching transports also switches ports; keeping the
+						// UDP port on USB would ask usbmuxd for the wrong one.
+						portText = String(choice.defaultPort)
+					}
+				)
+			) {
+				ForEach(TransportChoice.allCases, id: \.rawValue) { choice in
+					Text(choice.title).tag(choice)
+				}
+			}
+			.pickerStyle(.segmented)
+
+			if transport == .wifi {
+				field("Address") {
+					TextField("192.0.2.10", text: $host)
+						.textFieldStyle(.roundedBorder)
+						.keyboardType(.URL)
+						.textInputAutocapitalization(.never)
+						.autocorrectionDisabled()
+						.submitLabel(.next)
+				}
 			}
 
-			field("UDP port") {
-				TextField("37689", text: $portText)
+			field(transport == .wifi ? "UDP port" : "TCP port") {
+				TextField(String(transport.defaultPort), text: $portText)
 					.textFieldStyle(.roundedBorder)
 					.keyboardType(.numberPad)
 			}
 
-			field("Pairing token") {
+			field("Pairing code") {
 				HStack(spacing: 8) {
-					TextField("32 hexadecimal characters", text: $tokenText)
+					TextField("K7M2QX", text: $tokenText)
 						.textFieldStyle(.roundedBorder)
-						.font(.system(.callout, design: .monospaced))
-						.textInputAutocapitalization(.never)
+						.font(.system(.title3, design: .monospaced))
+						.textInputAutocapitalization(.characters)
 						.autocorrectionDisabled()
 
 					Button {
-						tokenText = PairingToken.random().hex
+						tokenText = PairingCode.random()
 					} label: {
 						Image(systemName: "dice")
 					}
 					.buttonStyle(.bordered)
-					.accessibilityLabel("Generate a new token")
+					.accessibilityLabel("Generate a new pairing code")
 
 					Button {
 						if let pasted = UIPasteboard.general.string {
@@ -126,7 +151,7 @@ struct ContentView: View {
 						Image(systemName: "doc.on.clipboard")
 					}
 					.buttonStyle(.bordered)
-					.accessibilityLabel("Paste a token")
+					.accessibilityLabel("Paste a pairing code")
 
 					Button {
 						UIPasteboard.general.string = tokenText
@@ -134,7 +159,7 @@ struct ContentView: View {
 						Image(systemName: "doc.on.doc")
 					}
 					.buttonStyle(.bordered)
-					.accessibilityLabel("Copy the token")
+					.accessibilityLabel("Copy the pairing code")
 				}
 			}
 
@@ -157,54 +182,6 @@ struct ContentView: View {
 		}
 	}
 
-	private var howToCard: some View {
-		Card {
-			Text("How to connect")
-				.font(.headline)
-
-			VStack(alignment: .leading, spacing: 10) {
-				step(
-					1,
-					"On the desktop, run `cargo run -- run`. Enter that machine's local IP address and port 37689 here."
-				)
-				step(
-					2,
-					"Copy the token with `cargo run -- token`, or create one with `cargo run -- token --reset`."
-				)
-				step(
-					3,
-					"Use the same token here. Both devices must be on the same Wi-Fi network."
-				)
-			}
-			.font(.callout)
-			.foregroundStyle(.secondary)
-		}
-	}
-
-	private var protocolCard: some View {
-		Card {
-			Text("Wire protocol")
-				.font(.headline)
-
-			Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 10) {
-				protocolRow("Version", "\(ProtocolSpec.version)")
-				protocolRow("Packet size", "\(ProtocolSpec.packetSize) bytes")
-				protocolRow("Magic", "0x5441 (AT)")
-				protocolRow("Transport", "Wi-Fi UDP")
-				protocolRow("Device capabilities", "Tilt and hover")
-			}
-			.font(.callout)
-		}
-	}
-
-	private var footer: some View {
-		Text("M3 · Version \(marketingVersion) · Protocol v\(ProtocolSpec.version)")
-			.font(.footnote)
-			.foregroundStyle(.secondary)
-			.frame(maxWidth: .infinity, alignment: .center)
-			.padding(.top, 8)
-	}
-
 	private func field<Content: View>(
 		_ label: String,
 		@ViewBuilder content: () -> Content
@@ -217,57 +194,53 @@ struct ContentView: View {
 		}
 	}
 
-	private func step(_ number: Int, _ text: String) -> some View {
-		HStack(alignment: .firstTextBaseline, spacing: 10) {
-			Text("\(number).")
-				.font(.callout.monospacedDigit().weight(.semibold))
-				.frame(width: 18, alignment: .trailing)
-			Text(text)
-				.fixedSize(horizontal: false, vertical: true)
-		}
-	}
-
-	private func protocolRow(_ label: String, _ value: String) -> some View {
-		GridRow {
-			Text(label)
-				.foregroundStyle(.secondary)
-			Text(value)
-				.gridColumnAlignment(.trailing)
-				.multilineTextAlignment(.trailing)
-		}
-	}
-
-	private var marketingVersion: String {
-		Bundle.main.object(
-			forInfoDictionaryKey: "CFBundleShortVersionString"
-		) as? String ?? "0.0.1"
-	}
-
 	private var connectionSettings: ConnectionSettings? {
-		let address = host.trimmingCharacters(in: .whitespacesAndNewlines)
-		guard !address.isEmpty else {
-			return nil
-		}
 		let port = portText.trimmingCharacters(in: .whitespacesAndNewlines)
 		guard let portNumber = UInt16(port), portNumber != 0 else {
 			return nil
 		}
-		guard let token = PairingToken(hex: tokenText) else {
+		guard let token = parsedToken else {
 			return nil
 		}
-		return ConnectionSettings(host: address, port: portNumber, token: token)
+
+		if transport == .wifi {
+			let address = host.trimmingCharacters(in: .whitespacesAndNewlines)
+			guard !address.isEmpty else {
+				return nil
+			}
+			return ConnectionSettings(
+				transport: .wifi,
+				host: address,
+				port: portNumber,
+				token: token
+			)
+		}
+		return ConnectionSettings(transport: .usb, host: "", port: portNumber, token: token)
+	}
+
+	/// The typed secret: a 6-character code, or 32 hex characters from an older
+	/// configuration.
+	private var parsedToken: PairingToken? {
+		let trimmed = tokenText.trimmingCharacters(in: .whitespacesAndNewlines)
+		if let hex = PairingToken(hex: trimmed) {
+			return hex
+		}
+		return try? PairingToken(code: trimmed)
 	}
 
 	private var validationMessage: String? {
-		if host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-			return "Enter the desktop address printed by the desktop CLI."
+		if transport == .wifi {
+			let address = host.trimmingCharacters(in: .whitespacesAndNewlines)
+			if address.isEmpty {
+				return "Enter the desktop address printed by the desktop CLI."
+			}
 		}
 		let port = portText.trimmingCharacters(in: .whitespacesAndNewlines)
 		if UInt16(port) == nil || UInt16(port) == 0 {
-			return "Enter a UDP port between 1 and 65535."
+			return "Enter a port between 1 and 65535."
 		}
-		if PairingToken(hex: tokenText) == nil {
-			return "The token must be exactly 32 hexadecimal characters."
+		if parsedToken == nil {
+			return "Enter the \(PairingCode.length)-character pairing code from `absolutetouch token`."
 		}
 		return nil
 	}
@@ -286,7 +259,7 @@ struct ContentView: View {
 	}
 }
 
-private struct Card<Content: View>: View {
+struct Card<Content: View>: View {
 	private let content: Content
 
 	init(@ViewBuilder content: () -> Content) {

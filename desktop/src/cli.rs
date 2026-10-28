@@ -38,7 +38,7 @@ pub enum Command {
     Devices,
     /// Check permissions and backend availability.
     Doctor,
-    /// Show or reset the pairing token.
+    /// Show or reset the pairing code.
     Token(TokenArgs),
 }
 
@@ -48,6 +48,9 @@ pub struct RunArgs {
     /// Transport to use.
     #[arg(long, value_enum)]
     pub transport: Option<TransportArg>,
+    /// USB device serial, or a fragment of it.
+    #[arg(long, value_name = "SERIAL")]
+    pub serial: Option<String>,
     /// Injection backend; `auto` selects the best available.
     #[arg(long, value_name = "BACKEND")]
     pub backend: Option<String>,
@@ -82,9 +85,12 @@ pub struct ReplayArgs {
 /// Options for `token`.
 #[derive(Debug, Args)]
 pub struct TokenArgs {
-    /// Generate a new token.
+    /// Generate a new pairing code.
     #[arg(long)]
     pub reset: bool,
+    /// Generate a 32-character token instead of a 6-character code.
+    #[arg(long, requires = "reset")]
+    pub hex: bool,
 }
 
 /// Transport selection accepted by the CLI.
@@ -140,7 +146,7 @@ fn dispatch(cli: Cli) -> Result<(), Error> {
             Ok(())
         }
         Command::Token(args) => token(&args, config_path.as_deref()),
-        Command::Devices => Err(Error::NotImplemented { feature: "devices" }),
+        Command::Devices => devices(),
         Command::Run(args) => run_session(args, config_path.as_deref()),
         Command::Replay(args) => replay_trace(&args, config_path.as_deref()),
     }
@@ -157,25 +163,49 @@ fn run_session(args: RunArgs, config_path: Option<&Path>) -> Result<(), Error> {
         .apply_overrides(&overrides)
         .validate()?;
 
-    if config.transport == TransportMode::Usb {
-        return Err(Error::NotImplemented {
-            feature: "usb transport",
-        });
-    }
-
     let mut injector = backend(&config.backend, config.dry_run, config.device)?;
     let stop = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&stop);
     ctrlc::set_handler(move || flag.store(true, Ordering::SeqCst))
         .map_err(|error| Error::Signal(error.to_string()))?;
 
-    let report = run::wifi(&config, injector.as_mut(), args.record.as_deref(), &stop)?;
+    let report = match config.transport {
+        TransportMode::Wifi => {
+            run::wifi(&config, injector.as_mut(), args.record.as_deref(), &stop)?
+        }
+        TransportMode::Usb => run::usb(
+            &config,
+            args.serial.as_deref(),
+            injector.as_mut(),
+            args.record.as_deref(),
+            &stop,
+        )?,
+    };
 
     println!(
         "injected {} samples, recorded {} packets",
         report.injected, report.recorded
     );
     eprintln!("{}", report.stats);
+    Ok(())
+}
+
+/// Print the USB devices `usbmuxd` reports.
+fn devices() -> Result<(), Error> {
+    let mut daemon = crate::transport::usbmux::Daemon::connect()?;
+    let devices = daemon.list_devices()?;
+
+    if devices.is_empty() {
+        println!("no devices attached");
+        return Ok(());
+    }
+
+    for device in devices {
+        println!(
+            "{}\tdevice {}\tproduct {:#06x}\t{}",
+            device.serial, device.id, device.product_id, device.connection_type
+        );
+    }
     Ok(())
 }
 
@@ -215,7 +245,11 @@ fn token(args: &TokenArgs, config_path: Option<&Path>) -> Result<(), Error> {
     };
 
     if args.reset {
-        let new_token = encode_hex16(&generate_token());
+        let new_token = if args.hex {
+            encode_hex16(&generate_token())
+        } else {
+            crate::pairing::generate_code()
+        };
         config.token = Some(new_token.clone());
         let config = config.validate()?;
         if let Some(path) = &path {
@@ -230,7 +264,7 @@ fn token(args: &TokenArgs, config_path: Option<&Path>) -> Result<(), Error> {
         Some(token) => println!("{token}"),
         None => {
             eprintln!(
-                "no token configured{}; run `absolutetouch token --reset`",
+                "no pairing code configured{}; run `absolutetouch token --reset`",
                 path.map(|path| format!(" in {}", path.display()))
                     .unwrap_or_default()
             );
@@ -319,7 +353,7 @@ mod tests {
     }
 
     #[test]
-    fn token_reset_writes_and_reads_the_file() {
+    fn token_reset_writes_a_code_that_derives_the_configured_token() {
         let directory = tempfile::tempdir().expect("tempdir");
         let path = directory.path().join("config.toml");
         let cli = Cli::try_parse_from([
@@ -328,6 +362,32 @@ mod tests {
             path.to_str().expect("path"),
             "token",
             "--reset",
+        ])
+        .expect("parse token");
+
+        dispatch(cli).expect("reset token");
+
+        let config = Config::from_file(&path).expect("load");
+        let code = config.token.clone().expect("token");
+        assert_eq!(code.len(), crate::pairing::CODE_LENGTH);
+        assert_eq!(crate::pairing::normalize(&code).expect("normalize"), code);
+        assert_eq!(
+            config.token_bytes().expect("token bytes"),
+            Some(crate::pairing::token_from_code(&code).expect("derive"))
+        );
+    }
+
+    #[test]
+    fn token_reset_hex_writes_a_full_token() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let path = directory.path().join("config.toml");
+        let cli = Cli::try_parse_from([
+            "absolutetouch",
+            "--config",
+            path.to_str().expect("path"),
+            "token",
+            "--reset",
+            "--hex",
         ])
         .expect("parse token");
 
@@ -343,23 +403,23 @@ mod tests {
     }
 
     #[test]
-    fn devices_reports_not_implemented() {
-        let cli = Cli::try_parse_from(["absolutetouch", "devices"]).expect("parse devices");
+    fn parses_the_usb_serial_selector() {
+        let cli = Cli::try_parse_from([
+            "absolutetouch",
+            "run",
+            "--transport",
+            "usb",
+            "--serial",
+            "00008110",
+        ])
+        .expect("parse run");
 
-        assert!(matches!(
-            dispatch(cli),
-            Err(crate::error::Error::NotImplemented { .. })
-        ));
-    }
-
-    #[test]
-    fn usb_run_reports_not_implemented() {
-        let cli =
-            Cli::try_parse_from(["absolutetouch", "run", "--transport", "usb"]).expect("parse run");
-
-        assert!(matches!(
-            dispatch(cli),
-            Err(crate::error::Error::NotImplemented { .. })
-        ));
+        match cli.command {
+            Some(Command::Run(args)) => {
+                assert_eq!(args.transport, Some(TransportArg::Usb));
+                assert_eq!(args.serial.as_deref(), Some("00008110"));
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
     }
 }

@@ -61,19 +61,21 @@ See [ADR 0002](decisions/0002-wifi-and-usb-transports.md).
 
 The desktop is a single Rust crate with a library and a thin binary.
 
-| Module              | Responsibility                                   | Status                            |
-| ------------------- | ------------------------------------------------ | --------------------------------- |
-| `protocol`          | 40-byte encode/decode, flags, errors             | M0                                |
-| `config`            | Defaults, TOML, environment, and CLI precedence  | M1                                |
-| `cli`               | Argument parsing and command dispatch            | M1                                |
-| `doctor`            | Environment and permission report                | M0                                |
-| `transport::udp`    | Wi-Fi UDP receive path and bounded queue         | M1                                |
-| `transport::usbmux` | USB path through `usbmuxd`                       | M4                                |
-| `transport::trace`  | Record and replay packet traces                  | M1                                |
-| `session`           | Handshake, sequence window, heartbeats, watchdog | M1                                |
-| `mapping`           | Normalized device → target rectangle             | M1                                |
-| `inject`            | Injector trait, mock recorder, platform backends | M1 mock, M2 uinput; M5/M6 planned |
-| `stats`             | Counters for drops, latency, errors              | M1                                |
+| Module               | Responsibility                                   | Status                            |
+| -------------------- | ------------------------------------------------ | --------------------------------- |
+| `protocol`           | 40-byte encode/decode, flags, errors             | M0                                |
+| `config`             | Defaults, TOML, environment, and CLI precedence  | M1                                |
+| `cli`                | Argument parsing and command dispatch            | M1                                |
+| `doctor`             | Environment and permission report                | M0                                |
+| `pairing`            | Six-character code → 16-byte token               | M4                                |
+| `transport::udp`     | Wi-Fi UDP receive path and bounded queue         | M1                                |
+| `transport::usbmux`  | USB path through `usbmuxd`                       | M4                                |
+| `transport::framing` | Fixed 40-byte frames over a byte stream          | M4                                |
+| `transport::trace`   | Record and replay packet traces                  | M1                                |
+| `session`            | Handshake, sequence window, heartbeats, watchdog | M1                                |
+| `mapping`            | Normalized device → target rectangle             | M1                                |
+| `inject`             | Injector trait, mock recorder, platform backends | M1 mock, M2 uinput; M5/M6 planned |
+| `stats`              | Counters for drops, latency, errors              | M1                                |
 
 ### Session pipeline
 
@@ -100,6 +102,37 @@ The design deliberately avoids an async runtime through M2. At 60 Hz a single
 receiver thread plus a tight session loop is simpler to reason about than a
 task graph, and the polled socket doubles as the idle wait. Later backends can
 change this if measurements justify it.
+
+### USB pipeline
+
+The USB runner shares the session and injector code with Wi-Fi; only the byte
+source differs:
+
+1. `usbmux::Daemon` connects to `/var/run/usbmuxd` (or the
+   `ABSOLUTETOUCH_USBMUX_SOCKET` override), lists devices, and asks the daemon
+   to connect to TCP port 37690 on the selected one.
+2. A successful `Connect` turns the daemon socket into a raw pipe. The runner
+   reads it directly in the session loop with a 20 ms timeout, so Ctrl+C and the
+   watchdog stay responsive without a reader thread.
+3. `framing::FrameDecoder` reassembles 40-byte packets from arbitrary reads.
+   Decode failures are counted and logged, exactly as invalid datagrams are.
+4. Replies are written back on the same stream. The session names a USB peer
+   `Peer::Connection(id)` instead of `Peer::Network(address)`, so the session
+   state machine is unchanged; the runner maps actions to writes with a closure.
+
+USB needs no reader thread because there is exactly one stream. Wi-Fi keeps its
+thread because a blocking `recv_from` cannot double as the idle wait without a
+socket timeout, and a timeout there would drop datagrams that arrive between
+polls.
+
+### Pairing
+
+The desktop pins the session to the first peer that completes the handshake, and
+the wire token is the expansion of a six-character code so it can be typed on an
+iPad. The derivation lives in `pairing` and is mirrored in Swift; shared vectors
+keep them identical. A 30-bit code is only safe to expose because wrong `HELLO`s
+are budgeted: five per 30-second window, after which the desktop stops replying
+and counts `rate_limited`. A correct code clears the budget.
 
 Heartbeats carry the host and device timestamps needed to align the two clocks,
 so the session also reports `input latency`: the age of each injected sample in
@@ -277,9 +310,16 @@ idle ──start──▶ connecting(attempt) ──HELLO_ACK──▶ streaming
 
 ### USB
 
-- The iPad listens on TCP port 37690.
-- The desktop asks `usbmuxd` to connect to that port on the selected device.
-- The protocol, handshake, and packet stream are identical to Wi-Fi.
+- The iPad listens on TCP port 37690; the desktop connects through the local
+  `usbmuxd` daemon.
+- The desktop speaks the daemon's framed XML-plist protocol just long enough to
+  run `ListDevices` and `Connect`, then uses the same socket as a raw byte pipe.
+- The protocol, handshake, session rules, and packet stream are identical to
+  Wi-Fi. The stream has no length prefix, so both sides reassemble 40-byte
+  packets with a frame decoder.
+- `absolutetouch devices` lists attached iPads; `--serial` selects between them.
+  A refused connection means the iPad app is not listening yet, because
+  `usbmuxd` only forwards to an open port inside the app.
 - USB avoids Wi-Fi jitter and local-network permission prompts, but depends on
   the platform's `usbmuxd` support.
 
@@ -291,9 +331,11 @@ idle ──start──▶ connecting(attempt) ──HELLO_ACK──▶ streaming
 - The iPad stops sampling when the app is backgrounded, sends `BYE` on stop or
   backgrounding, and stops on transport error.
 - `--dry-run` decodes and logs samples without injecting.
-- `doctor` reports missing permissions and device nodes before a session.
-- The token and source-IP pin reduce accidental cross-session injection. They
-  are not a substitute for network security.
+- `doctor` reports missing permissions and device nodes, and probes `usbmuxd`
+  instead of trusting that a socket file exists.
+- The pairing token and peer pin reduce accidental cross-session injection. Six
+  characters carry 30 bits, so the desktop also rate limits wrong handshakes;
+  neither is a substitute for network security.
 
 ## Milestones
 
@@ -302,8 +344,8 @@ idle ──start──▶ connecting(attempt) ──HELLO_ACK──▶ streaming
 | M0        | Skeleton, protocol, golden vectors, Rust + Swift tests, manual CI |
 | M1        | Desktop session, UDP, config, trace replay, mock injector         |
 | M2        | Linux `uinput` backend                                            |
-| M3        | iPad canvas, Wi-Fi end-to-end, hover                              |
-| M4        | USB via `usbmuxd`                                                 |
+| M3        | iPad canvas, Wi-Fi end-to-end, hover (validated on hardware)      |
+| M4        | USB via `usbmuxd` (implemented; hardware validation pending)      |
 | M5        | Windows backends (beta)                                           |
 | M6        | macOS backend, TestFlight, releases                               |
 

@@ -14,6 +14,7 @@ pub mod doctor;
 pub mod error;
 pub mod inject;
 pub mod mapping;
+pub mod pairing;
 pub mod protocol;
 pub mod run;
 pub mod session;

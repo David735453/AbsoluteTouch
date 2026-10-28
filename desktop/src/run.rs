@@ -1,5 +1,6 @@
 //! Session runner: transport, session state machine, injector, statistics.
 
+use std::io::{self, Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -10,10 +11,12 @@ use crate::inject::Injector;
 use crate::mapping::{MappedSample, Mapping};
 use crate::protocol::packet::Packet;
 use crate::protocol::types::PacketType;
-use crate::session::{Action, Session, SessionConfig};
+use crate::session::{Action, Peer, Session, SessionConfig};
 use crate::stats::Stats;
+use crate::transport::framing::FrameDecoder;
 use crate::transport::trace::{TraceReader, TraceWriter};
 use crate::transport::udp::{Inbound, UdpTransport};
+use crate::transport::usbmux::{self, Daemon};
 
 /// How often the session loop wakes without traffic.
 const TICK: Duration = Duration::from_millis(20);
@@ -76,7 +79,7 @@ pub fn wifi(
                 if let Some(recorder) = &mut recorder {
                     recorder.record(&packet, now)?;
                 }
-                session.handle(peer, &packet, now);
+                session.handle(peer.into(), &packet, now);
             }
             Ok(Some(Inbound::Invalid { peer, error })) => {
                 session.stats_mut().record_protocol_error();
@@ -92,16 +95,120 @@ pub fn wifi(
         session.tick(Instant::now());
         apply_live_actions(
             &mut session,
-            &transport,
             injector,
             &mut injected,
             config.dry_run,
+            |bytes, peer| match peer.address() {
+                Some(address) => transport.send_to(bytes, address),
+                None => Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "usb peer on the udp transport",
+                )),
+            },
         )?;
     }
 
     injector.release_all()?;
     session.stats_mut().add_channel_drops(transport.dropped());
     transport.shutdown();
+
+    let trace_records = match recorder {
+        Some(recorder) => recorder.finish()?,
+        None => 0,
+    };
+
+    Ok(Report {
+        stats: *session.stats(),
+        injected,
+        recorded: trace_records,
+    })
+}
+
+/// Run the USB session until `stop` is set or the iPad closes the stream.
+///
+/// `usbmuxd` is asked for the attached devices, one is selected (the only one,
+/// or the one `serial` names), and the daemon opens a TCP connection to the
+/// port the iPad app listens on. The resulting stream is a raw byte pipe, so
+/// [`FrameDecoder`] rebuilds the 40-byte packets the session expects.
+///
+/// # Errors
+///
+/// Returns an error when `usbmuxd` is unreachable, no device matches, the iPad
+/// is not listening on the configured port, or the trace or injector fails.
+pub fn usb(
+    config: &Config,
+    serial: Option<&str>,
+    injector: &mut dyn Injector,
+    record: Option<&Path>,
+    stop: &AtomicBool,
+) -> Result<Report, Error> {
+    let mut daemon = Daemon::connect()?;
+    let devices = daemon.list_devices()?;
+    let device = usbmux::select(&devices, serial)?.clone();
+    eprintln!(
+        "connecting to {} over usb (port {})",
+        device.serial, config.tcp_port
+    );
+
+    let mut stream = daemon.connect_device(device.id, config.tcp_port)?;
+    // A short read timeout keeps the session tick and watchdog running when the
+    // app pauses; reads return `WouldBlock` instead of blocking the loop.
+    stream.set_read_timeout(Some(TICK))?;
+
+    let started = Instant::now();
+    let mut session = Session::new(session_config(config)?, mapping(config), started);
+    let mut recorder = record
+        .map(|path| TraceWriter::create(path, started))
+        .transpose()?;
+    let mut decoder = FrameDecoder::new();
+    let mut buffer = [0_u8; 1_024];
+    let mut injected = 0;
+
+    while !stop.load(Ordering::Relaxed) {
+        match stream.read(&mut buffer) {
+            Ok(0) => {
+                eprintln!("usb connection closed by the iPad");
+                break;
+            }
+            Ok(count) => decoder.push(&buffer[..count]),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) => {}
+            Err(error) => {
+                eprintln!("usb read failed: {error}");
+                break;
+            }
+        }
+
+        while let Some(frame) = decoder.next_frame() {
+            let now = Instant::now();
+            match Packet::decode(&frame) {
+                Ok(packet) => {
+                    if let Some(recorder) = &mut recorder {
+                        recorder.record(&packet, now)?;
+                    }
+                    session.handle(Peer::Connection(u64::from(device.id)), &packet, now);
+                }
+                Err(error) => {
+                    session.stats_mut().record_protocol_error();
+                    eprintln!("dropped invalid usb frame: {error}");
+                }
+            }
+        }
+
+        session.tick(Instant::now());
+        apply_live_actions(
+            &mut session,
+            injector,
+            &mut injected,
+            config.dry_run,
+            |bytes, _peer| stream.write_all(bytes).map(|()| bytes.len()),
+        )?;
+    }
+
+    injector.release_all()?;
 
     let trace_records = match recorder {
         Some(recorder) => recorder.finish()?,
@@ -137,9 +244,11 @@ pub fn replay(
     }
 
     let session_id = peek_session_id(path)?.unwrap_or(1);
-    let peer = REPLAY_PEER
-        .parse()
-        .map_err(|_| Error::Usage("invalid replay peer".to_owned()))?;
+    let peer = Peer::Network(
+        REPLAY_PEER
+            .parse()
+            .map_err(|_| Error::Usage("invalid replay peer".to_owned()))?,
+    );
 
     let mut reader = TraceReader::open(path)?;
     let started = Instant::now();
@@ -184,12 +293,18 @@ pub fn replay(
     })
 }
 
+/// Apply the actions the session produced, replying through `send`.
+///
+/// The transport is a closure rather than a socket so the same session loop
+/// serves UDP (which addresses a peer) and USB (which owns one stream). `send`
+/// receives the peer the session answered, so UDP can address it and USB can
+/// ignore it.
 fn apply_live_actions(
     session: &mut Session,
-    transport: &UdpTransport,
     injector: &mut dyn Injector,
     injected: &mut u64,
     dry_run: bool,
+    mut send: impl FnMut(&[u8], Peer) -> io::Result<usize>,
 ) -> Result<(), Error> {
     for action in session.take_actions() {
         match action {
@@ -203,11 +318,11 @@ fn apply_live_actions(
                 packet.session_id = session_id;
                 packet.set_token(token);
                 packet.flags = caps;
-                transport.send_to(&packet.encode(), peer)?;
+                send(&packet.encode(), peer)?;
                 eprintln!("session {session_id} accepted from {peer}");
             }
             Action::SendHeartbeatAck { peer, packet } => {
-                transport.send_to(&packet.encode(), peer)?;
+                send(&packet.encode(), peer)?;
             }
             Action::Rejected { peer, reason } => {
                 eprintln!("rejected packet from {peer}: {reason:?}");

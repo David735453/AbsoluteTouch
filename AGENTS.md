@@ -6,12 +6,13 @@ AbsoluteTouch streams Apple Pencil and finger input from an iPad to a desktop
 machine and injects it as an absolute tablet. The iPad is the input device; the
 Rust desktop CLI is the receiver and OS-level injector.
 
-**Current status:** M3 in progress. The desktop is at M2 (Wi-Fi session,
-config, mapping, trace replay, mock injector, Linux `uinput` absolute tablet).
-The iPad sender — pairing form, UIKit canvas, Swift session machine/controller,
-and Wi-Fi UDP transport — is implemented and unit-tested on Linux, but it has
-not been built for a device or validated on real hardware yet. Windows/macOS
-injection is not implemented.
+**Current status:** M4 in progress. The desktop implements the Wi-Fi session
+(M2), the Linux `uinput` absolute tablet, and USB through `usbmuxd`, plus a
+six-character pairing code that expands to the 16-byte wire token. The iPad
+sender — pairing form, UIKit canvas, Swift session machine/controller, and
+Wi-Fi UDP or USB TCP transport — is unit-tested on Linux and the Wi-Fi path has
+been validated on a real iPad Air; USB has not been run on hardware yet.
+Windows/macOS injection is not implemented.
 
 **Read first:**
 
@@ -74,8 +75,11 @@ cargo test --all-targets
 cargo clippy --all-targets -- -D warnings
 cargo fmt --all -- --check
 cargo run -- doctor
+cargo run -- token --reset
 cargo run -- run
 cargo run -- run --backend mock
+cargo run -- devices
+cargo run -- run --transport usb
 cargo run -- replay demo.atrace --dry-run
 
 # Swift core (runs on Linux and macOS)
@@ -187,9 +191,10 @@ and regenerate on macOS.
 - [x] Manual CI workflows for all platforms (defined; first runs pending)
 - [x] M1: desktop session, UDP, config, replay, mock injector
 - [x] M2: Linux `uinput` backend
-- [ ] M3: iPad app, Wi-Fi end-to-end, hover (sender implemented; hardware
-      validation pending)
-- [ ] M4: USB via `usbmuxd`
+- [x] M3: iPad app, Wi-Fi end-to-end, hover (validated on iPad Air M4 with
+      Apple Pencil USB-C)
+- [ ] M4: USB via `usbmuxd`, six-character pairing codes (implemented;
+      hardware validation pending)
 - [ ] M5: Windows backends (beta)
 - [ ] M6: macOS backend, TestFlight, releases
 

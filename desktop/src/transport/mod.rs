@@ -4,6 +4,7 @@
 //! added in M4. Trace recording and replay live here because they share the
 //! packet framing.
 
+pub mod framing;
 pub mod trace;
 pub mod udp;
 pub mod usbmux;

@@ -75,7 +75,7 @@ struct StreamingView: View {
 
 	private func failureCard(_ failure: SessionFailure) -> some View {
 		VStack(spacing: 16) {
-			Image(systemName: "wifi.exclamationmark")
+			Image(systemName: settings.transport == .usb ? "cable.connector" : "wifi.exclamationmark")
 				.font(.system(size: 38, weight: .semibold))
 				.foregroundStyle(.red)
 				.accessibilityHidden(true)
@@ -89,11 +89,15 @@ struct StreamingView: View {
 				.foregroundStyle(.secondary)
 				.fixedSize(horizontal: false, vertical: true)
 
-			Text("Check that the desktop is still running and that both devices are on the same network.")
-				.font(.footnote)
-				.multilineTextAlignment(.center)
-				.foregroundStyle(.secondary)
-				.fixedSize(horizontal: false, vertical: true)
+			Text(
+				settings.transport == .usb
+					? "Check the cable, the iPad's trust prompt, and that `usbmuxd` is running on the desktop."
+					: "Check that the desktop is still running and that both devices are on the same network."
+			)
+			.font(.footnote)
+			.multilineTextAlignment(.center)
+			.foregroundStyle(.secondary)
+			.fixedSize(horizontal: false, vertical: true)
 
 			Button {
 				onStop()
@@ -135,7 +139,7 @@ struct StreamingView: View {
 	}
 
 	private var statusDetail: String {
-		let endpoint = "\(settings.host):\(settings.port)"
+		let endpoint = endpointDescription
 		switch viewModel.state {
 		case .idle:
 			return "No session"
@@ -147,6 +151,15 @@ struct StreamingView: View {
 			return "Session \(String(format: "%08X", sessionID)) · \(endpoint)"
 		case .failed:
 			return "The desktop did not accept the session"
+		}
+	}
+
+	private var endpointDescription: String {
+		switch settings.transport {
+		case .wifi:
+			"\(settings.host):\(settings.port)"
+		case .usb:
+			"USB port \(settings.port)"
 		}
 	}
 

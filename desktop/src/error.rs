@@ -5,6 +5,7 @@ use thiserror::Error;
 use crate::config::ConfigError;
 use crate::inject::InjectError;
 use crate::transport::trace::TraceError;
+use crate::transport::usbmux::UsbMuxError;
 
 /// Errors returned by the command-line layer.
 #[derive(Debug, Error)]
@@ -24,6 +25,9 @@ pub enum Error {
     /// Trace recording or replay failed.
     #[error(transparent)]
     Trace(#[from] TraceError),
+    /// USB transport through `usbmuxd` failed.
+    #[error(transparent)]
+    UsbMux(#[from] UsbMuxError),
     /// An injection backend failed or is unavailable.
     #[error(transparent)]
     Inject(#[from] InjectError),

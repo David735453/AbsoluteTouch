@@ -5,9 +5,12 @@
 - **Byte order:** little-endian
 - **Magic:** `0x5441` (`41 54`, ASCII `AT`)
 
-AbsoluteTouch uses one fixed-size packet for every message. There is no framing
-header beyond the packet itself: over UDP one datagram is one packet, and over
-USB one TCP read contains one or more 40-byte packets.
+AbsoluteTouch uses one fixed-size packet for every message. The packet itself is
+the only framing: over UDP one datagram is one packet, and over USB the TCP
+stream is a sequence of back-to-back 40-byte packets with no length prefix. A
+reader that receives a partial packet buffers it until the next read completes
+the 40 bytes; both implementations do this, and records of either transport can
+be replayed through the same code.
 
 The Rust and Swift implementations must agree byte for byte. Shared golden
 vectors live in [`protocol/vectors.json`](../protocol/vectors.json) and are
@@ -139,7 +142,8 @@ The iPad initiates the session:
 - `session_id` is zero.
 - `flags` carries the device capability bits.
 - The 16-byte payload is the pairing token, stored as eight little-endian
-  `u16` words (`x` is the first word).
+  `u16` words (`x` is the first word). The token is normally derived from a
+  six-character pairing code, described below.
 - Pointer flags must be zero.
 
 ### `HELLO_ACK`
@@ -182,6 +186,30 @@ stops streaming; the desktop releases every pressed button and closes the
 session. In M1 the desktop does not send `BYE` when it shuts down, but it runs
 the same release path.
 
+## Pairing codes
+
+Thirty-two hexadecimal characters are unusable on a touch keyboard, so the
+desktop prints a six-character code and both sides expand it into the 16-byte
+token carried by `HELLO`. The code alphabet is Crockford base32,
+`0123456789ABCDEFGHJKMNPQRSTVWXYZ`: no `I`, `L`, `O`, or `U`. Input folds the
+excluded letters to the digits they resemble (`I` and `L` to `1`, `O` to `0`)
+and ignores whitespace, `-`, and `:`.
+
+Six characters carry 30 bits. The expansion is a deterministic,
+domain-separated FNV-1a-64, not a password hash:
+
+| Step           | Value                                                            |
+| -------------- | ---------------------------------------------------------------- |
+| `message`      | ASCII `absolutetouch.pairing.v1:` followed by the six characters |
+| `token[0..8]`  | little-endian FNV-1a-64 of `message`                             |
+| `token[8..16]` | little-endian FNV-1a-64 of `message` followed by `token[0..8]`   |
+
+The code is the secret and the token adds no entropy; the expansion only makes
+the secret typeable. Brute-force resistance comes from the session rate limit,
+not from the derivation. A fixed 30-bit space would be guessable in seconds
+without it. `protocol/vectors.json` contains `pairing.vectors`, and both
+implementations read them so the derivation cannot drift.
+
 ## Session policy
 
 These rules are implemented by the session layer, not the packet codec.
@@ -201,24 +229,36 @@ These rules are implemented by the session layer, not the packet codec.
 5. A session that exceeds the session timeout requires a new `HELLO`;
    `session_id` values are not reused across sessions.
 6. When a pairing token is configured, `HELLO` must carry it or the desktop
-   drops the packet without replying. The desktop pins the session to the
-   source address of the accepted `HELLO`; another peer cannot take over while
-   the session is active.
+   drops the packet without replying. Five wrong tokens are answered with a
+   reject action per 30-second window; later wrong `HELLO`s in that window are
+   dropped silently and counted as rate limited. A correct token clears the
+   budget. The desktop pins the session to the peer that completed the
+   handshake; another peer cannot take over while the session is active.
 
 USB uses the same handshake and packet stream. The iPad listens on TCP port
-**37690**; the desktop connects through the local `usbmuxd` service. The iPad is
-the server in both directions of the transport relationship.
+**37690**; the desktop connects through the local `usbmuxd` service, which opens
+a connection to that port inside the app. The iPad is the server.
+
+On the daemon socket the desktop speaks `usbmuxd`'s framed XML-plist protocol:
+a 16-byte little-endian header of length, version (`1`), message, and tag,
+followed by an XML plist. `ListDevices` asks which iPads are attached, and
+`Connect` carries `DeviceID` and a network-byte-order `PortNumber`. After a
+successful `Connect` reply the same socket stops speaking that framing and
+carries the raw packet stream.
 
 ## Security
 
 Version 1 provides **no confidentiality, integrity, or replay protection**.
-The token is sent in clear text and only prevents accidental cross-session
-mixing and casual unauthorized injection on a trusted local network. The
-`auth_tag` is reserved for a future MAC.
+The token is sent in clear text. A six-character pairing code carries 30 bits,
+which stops accidental cross-session mixing and casual injection on a trusted
+local network only because the desktop refuses repeated wrong handshakes; it is
+not a defence against an attacker who can watch traffic. Use
+`token --reset --hex` with 32 hexadecimal characters when the token must be
+unguessable, and enable a firewall. The `auth_tag` is reserved for a future MAC.
 
 Do not expose the UDP port to the public internet. Use Wi-Fi that you trust, or
-use USB. Pairing tokens, source-IP pins, and any future authentication work
-belong in the session layer; they do not change the 40-byte layout.
+use USB. Pairing codes, source pins, and any future authentication work belong
+in the session layer; they do not change the 40-byte layout.
 
 ## Golden vectors
 

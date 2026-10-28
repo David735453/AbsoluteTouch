@@ -14,10 +14,14 @@ compile.
 | Config tests           | Defaults, precedence, validation, example file                                                | `desktop/src/config.rs`                                                           |
 | Mapping tests          | Stretch, offset, letterbox, flag passthrough                                                  | `desktop/src/mapping.rs`                                                          |
 | Session tests          | Handshake, token, peer pin, sequence window, heartbeat, watchdog, clock offset and sample age | `desktop/src/session.rs`                                                          |
+| Pairing code tests     | Normalization, FNV expansion, shared vectors, generated codes                                 | `desktop/src/pairing.rs`, `PairingCodeTests.swift`                                |
 | Injector tests (mock)  | Exact event sequences through `MockInjector`                                                  | `desktop/src/inject/mock.rs`                                                      |
 | Injector tests (Linux) | Frames, tilt, tool switching, release; real device when permitted                             | `desktop/src/inject/linux.rs`                                                     |
 | Trace tests            | Round-trip, offsets, truncation, corrupt packets                                              | `desktop/src/transport/trace.rs`                                                  |
 | UDP tests              | Local socket receive, decode errors, replies, shutdown                                        | `desktop/src/transport/udp.rs`                                                    |
+| USB framing tests      | One-byte reads, short reads, multi-packet reads, buffered tail                                | `desktop/src/transport/framing.rs`                                                |
+| usbmuxd client tests   | Request framing, device parsing, byte-swapped port, result mapping, selection                 | `desktop/src/transport/usbmux.rs` against a fake daemon                           |
+| USB CLI tests          | `devices`, `run --transport usb`, refused port, missing daemon                                | `desktop/tests/usb.rs` against a fake daemon                                      |
 | End-to-end             | HELLO/SAMPLE/BYE over loopback, record then replay                                            | `desktop/src/run.rs`                                                              |
 | Swift core tests       | Same protocol and vectors as Rust                                                             | `ios/AbsoluteTouchCore/Tests/`                                                    |
 | Swift session tests    | Handshake, heartbeat RTT, timeout re-handshake, sequence wrap                                 | `ios/AbsoluteTouchCore/Tests/AbsoluteTouchCoreTests/SessionMachineTests.swift`    |
@@ -478,11 +482,15 @@ backend, transport, iPad model, and Pencil model to the result.
 
 ### iPad app (M3)
 
-- [ ] The pairing screen keeps the address, port, and token across launches.
-- [ ] The first session shows the local network prompt.
+- [ ] The pairing screen keeps the transport, address, port, and code across
+      launches.
+- [ ] The first Wi-Fi session shows the local network prompt; a USB session does
+      not need it.
+- [ ] A six-character pairing code is accepted, with lower case and with `I`,
+      `L`, and `O` typed in place of `1` and `0`.
 - [ ] The HUD shows **Connecting** and then **Streaming** within one second of
       `HELLO_ACK`.
-- [ ] A wrong token stays on **Connecting** and is rejected in the desktop log.
+- [ ] A wrong code stays on **Connecting** and is rejected in the desktop log.
 - [ ] Rotating the iPad, or switching to Split View, keeps the active area
       aligned with the canvas bounds.
 - [ ] Holding the Pencil still for longer than the watchdog window keeps the
@@ -491,6 +499,25 @@ backend, transport, iPad model, and Pencil model to the result.
 - [ ] Stopping and backgrounding send `BYE`; the desktop releases immediately.
 - [ ] Restarting the desktop mid-session re-handshakes without the user
       restarting the app, and the desktop accepts samples afterwards.
+
+### USB (M4)
+
+- [ ] `doctor` reports the daemon path and the attached device count, and not
+      "socket present" when `usbmuxd` is stopped.
+- [ ] `devices` lists the iPad serial, device id, product id, and `USB`.
+- [ ] Two attached iPads require `--serial`; a serial fragment selects one and
+      an ambiguous fragment is rejected.
+- [ ] `run --transport usb` without the app running reports the refused port and
+      names the port, instead of hanging.
+- [ ] With the app streaming and the code matching, the desktop prints
+      `connecting to SERIAL over usb` and accepts the session.
+- [ ] The 40-byte stream survives Pencil bursts and pause/resume; `replay` of a
+      recorded USB trace matches the live summary with `--speed 1`.
+- [ ] `input latency` stays under one frame above the floor and is lower than
+      the Wi-Fi baseline on the same machine.
+- [ ] Unplugging the cable mid-stroke releases input and the next run
+      reconnects after the cable is restored.
+- [ ] A trace recorded over USB replays identically through the mock backend.
 
 ### Position and contact
 
@@ -530,9 +557,11 @@ backend, transport, iPad model, and Pencil model to the result.
 
 - **Linux** is the reference platform. It is supported after the M2 manual
   checklist passes on real hardware.
-- **The iPad app** is beta until the M3 manual checklist passes on a real iPad
-  and Pencil. A green core test run or a simulator build does not make it
-  supported.
+- **The iPad app** passed the M3 Wi-Fi checklist on the reference iPad Air (M4)
+  and Pencil (USB-C); it is still beta overall because USB has no hardware run
+  yet and rotation, multitasking, and other iPad sizes have not been exercised.
+- **USB** is beta until the M4 checklist above passes on real hardware. Unit
+  tests against a fake daemon prove the framing, not the cable.
 - **Windows** and **macOS** are beta until their manual checklists pass on real
   hardware. A green compile job is not support.
 - **TestFlight** builds are beta by definition; they do not imply App Store

@@ -4,24 +4,24 @@ AbsoluteTouch turns an iPad and Apple Pencil into an absolute graphics tablet fo
 a desktop computer. It streams Pencil position, contact, tilt, hover, and eraser
 state over Wi-Fi UDP or USB, then injects it as an absolute device.
 
-The project is in early development. **M3** adds the iPad sender: a pairing
-screen, a UIKit canvas that captures Pencil and finger input, and a Wi-Fi UDP
-session that streams hover and tilt to the desktop. The app has not yet been
-validated on real hardware, so treat M3 as beta; the Linux desktop path (M2) is
-the validated reference.
+The project is in early development. **M4** adds USB transport through
+`usbmuxd` and replaces the 32-hex-character pairing token with a six-character
+pairing code. The Wi-Fi path (M3) was validated on a real iPad Air (M4) and
+Apple Pencil (USB-C); USB is implemented on both sides but has not been run on
+hardware yet. The Linux desktop path (M2) is the validated reference.
 
 ## Status
 
-| Area                      | State                                        |
-| ------------------------- | -------------------------------------------- |
-| Protocol + golden vectors | Implemented and tested                       |
-| Desktop Wi-Fi session     | Implemented and tested (M1)                  |
-| Swift core package        | Implemented and tested                       |
-| Linux `uinput` tablet     | Implemented and tested (M2)                  |
-| iPad app + Wi-Fi sender   | Implemented, needs hardware validation (M3)  |
-| USB streaming             | Planned (M4)                                 |
-| Windows / macOS injection | Planned (M5/M6)                              |
-| TestFlight / releases     | TestFlight upload validated; releases manual |
+| Area                      | State                                              |
+| ------------------------- | -------------------------------------------------- |
+| Protocol + golden vectors | Implemented and tested                             |
+| Desktop Wi-Fi session     | Implemented and tested (M1)                        |
+| Swift core package        | Implemented and tested                             |
+| Linux `uinput` tablet     | Implemented and tested (M2)                        |
+| iPad app + Wi-Fi sender   | Validated on iPad Air (M4) + Pencil USB-C (M3)     |
+| USB via `usbmuxd`         | Implemented and unit-tested; hardware pending (M4) |
+| Windows / macOS injection | Planned (M5/M6)                                    |
+| TestFlight / releases     | TestFlight upload validated; releases manual       |
 
 ## Hardware note
 
@@ -62,16 +62,21 @@ Run a session:
 
 ```sh
 cd desktop
-cargo run -- token --reset                       # create a pairing token
+cargo run -- token --reset                       # create a six-character code
 cargo run -- run                                 # Linux: inject through uinput
 cargo run -- run --dry-run                       # decode without injecting
 cargo run -- run --backend mock --record demo.atrace
 cargo run -- replay demo.atrace --dry-run
+
+cargo run -- devices                             # list cable-connected iPads
+cargo run -- run --transport usb                 # receive through usbmuxd
 ```
 
 On the iPad, generate the Xcode project from `ios/project.yml`, run the app,
-and enter the desktop's LAN address, port `37689`, and the token. See
-[setup](docs/setup.md) for the full pairing walkthrough.
+choose **Wi-Fi** or **USB**, and enter the pairing code. Wi-Fi needs the
+desktop's LAN address and port `37689`; USB keeps the default TCP port `37690`
+and the app listens for the desktop. See [setup](docs/setup.md) for the full
+pairing walkthrough.
 
 ```sh
 brew install xcodegen
@@ -124,8 +129,10 @@ manual:
 
 AbsoluteTouch injects input into your desktop, so it is designed to fail safe: a
 watchdog releases all buttons when packets stop, on disconnect, or on shutdown.
-Wi-Fi pairing uses a token plus a source-IP pin and is intended for trusted home
-networks. The token is not encryption.
+Pairing uses a six-character code that expands to the 16-byte wire token plus a
+peer pin, and wrong codes are rate limited. It is intended for trusted home
+networks; the token is not encryption. `token --reset --hex` writes a full
+32-character token when a larger secret is wanted.
 
 ## License
 

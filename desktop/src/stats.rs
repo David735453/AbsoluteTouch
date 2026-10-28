@@ -37,6 +37,8 @@ pub struct Stats {
     pub channel_drops: u64,
     /// Injector errors.
     pub inject_errors: u64,
+    /// Handshakes dropped because the wrong-code budget was exhausted.
+    pub rate_limited: u64,
     /// Most recent heartbeat round-trip time in microseconds.
     pub last_rtt_us: Option<u32>,
     /// Most recent clock-offset estimate in microseconds.
@@ -86,6 +88,13 @@ impl fmt::Display for Stats {
             "queue drops: {}, heartbeats: {}",
             self.channel_drops, self.heartbeats,
         )?;
+        if self.rate_limited > 0 {
+            writeln!(
+                formatter,
+                "rate limited: {} handshakes ignored after repeated wrong codes",
+                self.rate_limited,
+            )?;
+        }
         if let Some(rtt) = self.last_rtt_us {
             writeln!(formatter, "last RTT: {rtt} us")?;
         }
@@ -152,6 +161,11 @@ impl Stats {
     /// Record an answered heartbeat.
     pub const fn record_heartbeat(&mut self) {
         self.heartbeats += 1;
+    }
+
+    /// Record a handshake dropped by the wrong-code budget.
+    pub const fn record_rate_limited(&mut self) {
+        self.rate_limited += 1;
     }
 
     /// Record a release sent to the injector.

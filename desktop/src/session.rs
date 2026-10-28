@@ -3,6 +3,7 @@
 //! The session is transport-agnostic and has no clock of its own: callers pass
 //! `Instant` values, which keeps every rule testable without sleeping.
 
+use std::fmt;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
@@ -10,6 +11,46 @@ use crate::mapping::{MappedSample, Mapping, TabletSample, Tilt};
 use crate::protocol::packet::Packet;
 use crate::protocol::types::{PacketType, flags};
 use crate::stats::Stats;
+
+/// Identity of a remote endpoint.
+///
+/// The session pins itself to the endpoint that completed the handshake, so it
+/// needs a stable name for that endpoint that does not assume IP. Wi-Fi has an
+/// address; USB has a connection through `usbmuxd`, whose only identity is the
+/// local socket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Peer {
+    /// A UDP peer address, as used over Wi-Fi.
+    Network(SocketAddr),
+    /// A numbered USB connection, as assigned by the runner.
+    Connection(u64),
+}
+
+impl Peer {
+    /// The address, when this peer is on the network.
+    #[must_use]
+    pub const fn address(self) -> Option<SocketAddr> {
+        match self {
+            Self::Network(address) => Some(address),
+            Self::Connection(_) => None,
+        }
+    }
+}
+
+impl From<SocketAddr> for Peer {
+    fn from(address: SocketAddr) -> Self {
+        Self::Network(address)
+    }
+}
+
+impl fmt::Display for Peer {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Network(address) => write!(formatter, "{address}"),
+            Self::Connection(id) => write!(formatter, "usb connection {id}"),
+        }
+    }
+}
 
 /// Capability bits the reference host can consume.
 pub const HOST_CAPS: u16 = flags::CAP_PRESSURE | flags::CAP_TILT | flags::CAP_HOVER;
@@ -62,6 +103,43 @@ pub enum RejectReason {
     NotStreaming,
     /// The session identifier or peer did not match.
     WrongSession,
+    /// Too many wrong tokens arrived in a short time.
+    RateLimited,
+}
+
+/// Wrong-token attempts allowed before the session stops answering.
+///
+/// A six-character pairing code carries 30 bits, so an attacker on the same
+/// network can only be stopped by refusing to look at guesses. Five attempts
+/// per window turn a 10^6-code space into months of traffic; it also means a
+/// user who mistypes five times has to wait.
+const BAD_TOKEN_LIMIT: u32 = 5;
+
+/// Window over which [`BAD_TOKEN_LIMIT`] is counted.
+const BAD_TOKEN_WINDOW: Duration = Duration::from_secs(30);
+
+/// Sliding budget of wrong-token attempts.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct BadTokenBudget {
+    failures: u32,
+    window: Option<Instant>,
+}
+
+impl BadTokenBudget {
+    /// Count one wrong token and report whether the caller may answer.
+    fn admits(&mut self, now: Instant) -> bool {
+        match self.window {
+            Some(start) if now.saturating_duration_since(start) < BAD_TOKEN_WINDOW => {
+                self.failures = self.failures.saturating_add(1);
+                self.failures <= BAD_TOKEN_LIMIT
+            }
+            _ => {
+                self.window = Some(now);
+                self.failures = 1;
+                true
+            }
+        }
+    }
 }
 
 /// An effect the caller must perform after handling a packet.
@@ -70,7 +148,7 @@ pub enum Action {
     /// Accept the session.
     SendHelloAck {
         /// Destination.
-        peer: SocketAddr,
+        peer: Peer,
         /// Assigned session identifier.
         session_id: u32,
         /// Echoed token.
@@ -81,14 +159,14 @@ pub enum Action {
     /// Answer a heartbeat.
     SendHeartbeatAck {
         /// Destination.
-        peer: SocketAddr,
+        peer: Peer,
         /// Fully populated acknowledgement.
         packet: Packet,
     },
     /// Reject or drop an inbound packet.
     Rejected {
         /// Source of the packet.
-        peer: SocketAddr,
+        peer: Peer,
         /// Reason for the rejection.
         reason: RejectReason,
     },
@@ -206,7 +284,7 @@ impl SeqWindow {
 #[derive(Debug)]
 struct Stream {
     session_id: u32,
-    peer: SocketAddr,
+    peer: Peer,
     token: [u8; 16],
     caps: u16,
     last_packet: Instant,
@@ -232,6 +310,7 @@ pub struct Session<I: SessionIds = RandomIds> {
     actions: Vec<Action>,
     stats: Stats,
     started: Instant,
+    bad_tokens: BadTokenBudget,
 }
 
 impl Session<RandomIds> {
@@ -254,6 +333,7 @@ impl<I: SessionIds> Session<I> {
             actions: Vec::with_capacity(4),
             stats: Stats::default(),
             started,
+            bad_tokens: BadTokenBudget::default(),
         }
     }
 
@@ -292,7 +372,7 @@ impl<I: SessionIds> Session<I> {
     }
 
     /// Handle one decoded packet.
-    pub fn handle(&mut self, peer: SocketAddr, packet: &Packet, now: Instant) {
+    pub fn handle(&mut self, peer: Peer, packet: &Packet, now: Instant) {
         self.stats.record_packet();
 
         if let Some(stream) = &self.stream
@@ -346,15 +426,27 @@ impl<I: SessionIds> Session<I> {
         self.actions.push(Action::ReleaseAll);
     }
 
-    fn on_hello(&mut self, peer: SocketAddr, packet: &Packet, now: Instant) {
+    fn on_hello(&mut self, peer: Peer, packet: &Packet, now: Instant) {
         let token = packet.token();
 
         if let Some(expected) = self.config.token
             && token != expected
         {
-            self.reject(peer, RejectReason::BadToken);
+            if self.bad_tokens.admits(now) {
+                self.reject(peer, RejectReason::BadToken);
+            } else {
+                self.stats.record_rate_limited();
+                self.actions.push(Action::Rejected {
+                    peer,
+                    reason: RejectReason::RateLimited,
+                });
+            }
             return;
         }
+
+        // A correct code clears the wrong-guess budget, so a user who mistypes
+        // a few times does not carry those attempts into the next session.
+        self.bad_tokens = BadTokenBudget::default();
 
         if let Some((existing_peer, existing_token, existing_id)) = self
             .stream
@@ -401,7 +493,7 @@ impl<I: SessionIds> Session<I> {
         });
     }
 
-    fn on_sample(&mut self, peer: SocketAddr, packet: &Packet, now: Instant) {
+    fn on_sample(&mut self, peer: Peer, packet: &Packet, now: Instant) {
         let Some((_session_id, caps, offset)) = self.active(peer, packet) else {
             return;
         };
@@ -454,7 +546,7 @@ impl<I: SessionIds> Session<I> {
         self.actions.push(Action::Inject(mapped));
     }
 
-    fn on_heartbeat(&mut self, peer: SocketAddr, packet: &Packet, now: Instant) {
+    fn on_heartbeat(&mut self, peer: Peer, packet: &Packet, now: Instant) {
         let Some((session_id, _caps, _offset)) = self.active(peer, packet) else {
             return;
         };
@@ -492,7 +584,7 @@ impl<I: SessionIds> Session<I> {
             .push(Action::SendHeartbeatAck { peer, packet: ack });
     }
 
-    fn on_bye(&mut self, peer: SocketAddr, packet: &Packet) {
+    fn on_bye(&mut self, peer: Peer, packet: &Packet) {
         let Some(session_id) = self.session_id() else {
             self.stats.record_ignored();
             return;
@@ -514,7 +606,7 @@ impl<I: SessionIds> Session<I> {
         self.stream = None;
     }
 
-    fn active(&mut self, peer: SocketAddr, packet: &Packet) -> Option<(u32, u16, Option<i64>)> {
+    fn active(&mut self, peer: Peer, packet: &Packet) -> Option<(u32, u16, Option<i64>)> {
         let Some(stream) = &self.stream else {
             self.reject(peer, RejectReason::NotStreaming);
             return None;
@@ -583,7 +675,7 @@ impl<I: SessionIds> Session<I> {
         }
     }
 
-    fn reject(&mut self, peer: SocketAddr, reason: RejectReason) {
+    fn reject(&mut self, peer: Peer, reason: RejectReason) {
         self.stats.record_ignored();
         self.actions.push(Action::Rejected { peer, reason });
     }
@@ -633,11 +725,11 @@ impl<I: SessionIds> Session<I> {
 
 #[cfg(test)]
 mod tests {
-    use std::net::SocketAddr;
     use std::time::{Duration, Instant};
 
     use super::{
-        Action, FixedIds, HOST_CAPS, RejectReason, SeqResult, SeqWindow, Session, SessionConfig,
+        Action, FixedIds, HOST_CAPS, Peer, RejectReason, SeqResult, SeqWindow, Session,
+        SessionConfig,
     };
     use crate::mapping::{Mapping, Rect};
     use crate::protocol::packet::Packet;
@@ -645,12 +737,12 @@ mod tests {
 
     const TOKEN: [u8; 16] = [0x5A; 16];
 
-    fn peer() -> SocketAddr {
-        "127.0.0.1:41000".parse().expect("peer address")
+    fn peer() -> Peer {
+        Peer::Network("127.0.0.1:41000".parse().expect("peer address"))
     }
 
-    fn other_peer() -> SocketAddr {
-        "127.0.0.1:41001".parse().expect("peer address")
+    fn other_peer() -> Peer {
+        Peer::Network("127.0.0.1:41001".parse().expect("peer address"))
     }
 
     fn session(started: Instant) -> Session<FixedIds> {
@@ -1293,6 +1385,69 @@ mod tests {
         session.handle(peer(), &after, started + Duration::from_micros(2_000_050));
         assert_eq!(session.stats().last_sample_excess_us(), Some(50));
         assert_eq!(session.stats().worst_sample_excess_us(), 60_000);
+    }
+
+    #[test]
+    fn repeated_wrong_codes_are_throttled() {
+        let started = Instant::now();
+        let mut session = session_with_token(started);
+        let wrong = hello([0x77; 16]);
+
+        // Five wrong codes are answered, so a user who fumbles a key sees the
+        // desktop react.
+        for index in 0..5 {
+            session.handle(peer(), &wrong, started + Duration::from_millis(100 + index));
+        }
+        assert_eq!(session.stats().rate_limited, 0);
+        assert_eq!(
+            session
+                .take_actions()
+                .iter()
+                .filter(|action| matches!(
+                    action,
+                    Action::Rejected {
+                        reason: RejectReason::BadToken,
+                        ..
+                    }
+                ))
+                .count(),
+            5
+        );
+
+        // The sixth attempt in the same window is dropped silently, which is
+        // what makes a 30-bit code too slow to guess.
+        session.handle(peer(), &wrong, started + Duration::from_millis(200));
+        assert_eq!(
+            session.take_actions(),
+            vec![Action::Rejected {
+                peer: peer(),
+                reason: RejectReason::RateLimited,
+            }]
+        );
+        assert_eq!(session.stats().rate_limited, 1);
+
+        // The window runs from the first failure, so waiting it out restores
+        // normal rejects instead of extending the lockout.
+        session.handle(peer(), &wrong, started + Duration::from_secs(31));
+        assert_eq!(
+            session.take_actions(),
+            vec![Action::Rejected {
+                peer: peer(),
+                reason: RejectReason::BadToken,
+            }]
+        );
+
+        // The right code still works from a different peer inside the window.
+        let accepted = hello(TOKEN);
+        session.handle(
+            other_peer(),
+            &accepted,
+            started + Duration::from_secs(31) + Duration::from_millis(1),
+        );
+        assert!(matches!(
+            session.take_actions().as_slice(),
+            [Action::SendHelloAck { .. }]
+        ));
     }
 
     #[test]

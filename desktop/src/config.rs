@@ -35,7 +35,7 @@ pub struct Config {
     pub udp_port: u16,
     /// TCP port used by the USB transport.
     pub tcp_port: u16,
-    /// Optional pairing token, as 32 hexadecimal characters.
+    /// Pairing secret: a 6-character code, or 32 hexadecimal characters.
     pub token: Option<String>,
     /// Milliseconds without a valid packet before input is released.
     pub watchdog_ms: u64,
@@ -297,7 +297,7 @@ impl Config {
             return Err(ConfigError::Invalid("backend must not be empty".to_owned()));
         }
         if let Some(token) = &self.token {
-            decode_hex16(token)?;
+            parse_token(token)?;
         }
         if !self.mapping.target.is_inside_full_range() {
             return Err(ConfigError::Invalid(
@@ -321,9 +321,9 @@ impl Config {
         Ok(self)
     }
 
-    /// Decode the configured token, if any.
+    /// Decode the configured pairing secret, if any.
     pub fn token_bytes(&self) -> Result<Option<[u8; 16]>, ConfigError> {
-        self.token.as_deref().map(decode_hex16).transpose()
+        self.token.as_deref().map(parse_token).transpose()
     }
 
     /// Serialize the configuration as TOML.
@@ -409,6 +409,30 @@ pub fn decode_hex16(text: &str) -> Result<[u8; 16], ConfigError> {
             | hex_digit(pair[1]).ok_or_else(|| bad_hex(text))?;
     }
     Ok(token)
+}
+
+/// Decode a pairing secret: 32 hexadecimal characters or a short code.
+///
+/// Thirty-two characters are the wire token itself. Anything shorter is a
+/// pairing code and is expanded with [`crate::pairing::token_from_code`], which
+/// is what makes the secret typeable on an iPad.
+///
+/// # Errors
+///
+/// Returns [`ConfigError::Invalid`] when the text is neither form.
+pub fn parse_token(text: &str) -> Result<[u8; 16], ConfigError> {
+    let text = text.trim();
+    if text.len() == 32 {
+        return decode_hex16(text);
+    }
+
+    crate::pairing::token_from_code(text).map_err(|error| {
+        ConfigError::Invalid(format!(
+            "token must be 32 hexadecimal characters or a {}-character pairing code \
+             (for example K7M2QX): {error}",
+            crate::pairing::CODE_LENGTH
+        ))
+    })
 }
 
 fn bad_hex(text: &str) -> ConfigError {

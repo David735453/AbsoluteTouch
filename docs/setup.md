@@ -2,9 +2,9 @@
 
 This guide covers building the desktop CLI, building the iPad app, and
 preparing Linux for tablet injection. The desktop Wi-Fi session, trace replay,
-the Linux `uinput` backend, and the iPad sender exist today (M1–M3). The iPad
-app still needs validation on real hardware, and USB (M4) and the Windows/macOS
-backends (M5, M6) are planned.
+the Linux `uinput` backend, the iPad sender, and the USB transport through
+`usbmuxd` exist today (M1–M4). The Windows/macOS backends (M5, M6) are planned,
+and the USB path still needs validation on real hardware.
 
 ## Requirements
 
@@ -35,9 +35,11 @@ cargo test --all-targets
 cargo run -- doctor
 ```
 
-`doctor` reports the OS, architecture, `/dev/uinput` state, and whether the
-`usbmuxd` socket is present. It exits successfully even when a backend is
-missing; use the report to fix the environment.
+`doctor` reports the OS, architecture, `/dev/uinput` state, and probes
+`usbmuxd` by connecting to it and asking for the device list. It exits
+successfully even when a backend is missing; use the report to fix the
+environment. A stale `/var/run/usbmuxd` socket from a stopped daemon is reported
+as unreachable, not as present.
 
 Repository helpers:
 
@@ -72,7 +74,7 @@ file:
 | `ABSOLUTETOUCH_UDP_PORT`           | Wi-Fi UDP port (default 37689)               |
 | `ABSOLUTETOUCH_TCP_PORT`           | USB TCP port (default 37690)                 |
 | `ABSOLUTETOUCH_TRANSPORT`          | `wifi` or `usb`                              |
-| `ABSOLUTETOUCH_TOKEN`              | 32 hex characters                            |
+| `ABSOLUTETOUCH_TOKEN`              | Pairing code or 32 hex characters            |
 | `ABSOLUTETOUCH_BACKEND`            | `auto`, `mock`, `uinput`, `windows`, `macos` |
 | `ABSOLUTETOUCH_DEVICE`             | `pointer` (default) or `tablet`              |
 | `ABSOLUTETOUCH_DRY_RUN`            | `true` or `false`                            |
@@ -83,11 +85,15 @@ file:
 ### Run and replay
 
 ```sh
-# Create a pairing token and write it to the config file
+# Create a pairing code and write it to the config file
 absolutetouch token --reset
 
 # Wi-Fi session without OS injection
 absolutetouch run --dry-run --record session.atrace
+
+# USB session: list the cable-connected iPad, then receive through usbmuxd
+absolutetouch devices
+absolutetouch run --transport usb
 
 # Mock backend: records injector decisions without touching the OS
 absolutetouch run --backend mock --record session.atrace
@@ -184,11 +190,17 @@ Then:
 The bundle identifier is `org.dstudios.absolutetouch`. The minimum deployment
 target is iPadOS 17.0. The app is iPad-only; it does not run on iPhone.
 
-The first screen is the pairing form. It remembers the address, port, and token
-in `UserDefaults`, so pairing is entered once per iPad. Tapping **Start
-streaming** replaces the form with the full-screen canvas and a session HUD.
-Backgrounding the app ends the session with `BYE`; starting again returns to
-the canvas with the saved values.
+The first screen is the pairing form. It remembers the transport, address, port,
+and pairing code in `UserDefaults`, so pairing is entered once per iPad. Tapping
+**Start streaming** replaces the form with the full-screen canvas and a session
+HUD. Backgrounding the app ends the session with `BYE`; starting again returns
+to the canvas with the saved values.
+
+Choose **Wi-Fi** or **USB** at the top of the form. The pairing field takes the
+six-character code from `absolutetouch token`; a pasted 32-character token from
+an older configuration still works and is accepted with spaces, `-`, or `:`
+separators. The code is case-insensitive and folds `I`/`L` to `1` and `O` to
+`0`.
 
 ### Local network permission
 
@@ -201,15 +213,22 @@ trusted by the desktop and `usbmuxd` to see the device.
 
 ## Streaming
 
-The desktop Wi-Fi receiver (M1), the Linux `uinput` backend (M2), and the iPad
-sender (M3) are implemented. The Wi-Fi path has been exercised end to end with
-a real iPad Air and Apple Pencil (USB-C) on Linux; hover and tilt are still
-being validated. USB (M4) is still planned, so `--transport usb` and `devices`
-report "not implemented".
+The desktop Wi-Fi receiver (M1), the Linux `uinput` backend (M2), the iPad
+sender (M3), and the USB transport (M4) are implemented. The Wi-Fi path has been
+exercised end to end with a real iPad Air and Apple Pencil (USB-C) on Linux. USB
+uses the same sessions and packets over a cable; it is implemented on both sides
+but has not been validated on hardware yet.
 
 ```sh
 # Normal Linux path: receive over Wi-Fi and inject through uinput
 absolutetouch run
+
+# Same, but over USB through usbmuxd
+absolutetouch run --transport usb
+
+# Two iPads attached: pick one by serial or a fragment of it
+absolutetouch devices
+absolutetouch run --transport usb --serial 00008110
 
 # Same, with the backend named explicitly
 absolutetouch run --backend uinput
@@ -231,9 +250,12 @@ absolutetouch replay session.atrace --dry-run
 # Inspect the environment
 absolutetouch doctor
 
-# Show or reset the pairing token
+# Show or reset the pairing code
 absolutetouch token
 absolutetouch token --reset
+
+# Print a full 32-character token instead of a code
+absolutetouch token --reset --hex
 ```
 
 `auto` selects `uinput` on Linux. `--dry-run` always selects the mock backend
@@ -256,10 +278,12 @@ inspect a trace.
    `cargo run -- run --dry-run` to watch samples on the terminal instead of
    injecting them.
 
-3. Read the pairing token with `cargo run -- token`, or create one with
-   `cargo run -- token --reset`. The reset form rewrites the config file.
-4. Build and run the iPad app, then enter the address, port 37689, and the
-   token. Tap **Start streaming** and allow local network access on first use.
+3. Read the pairing code with `cargo run -- token`, or create one with
+   `cargo run -- token --reset`. The reset form rewrites the config file and
+   prints a six-character code.
+4. Build and run the iPad app, choose **Wi-Fi**, then enter the address, port
+   37689, and the code. Tap **Start streaming** and allow local network access
+   on first use.
 5. The desktop prints `session N accepted from PEER` and the app HUD changes to
    **Streaming**. Touch and drag on the canvas to move the cursor; hover the
    Pencil to send hover samples; lift the Pencil to send an out-of-range
@@ -272,8 +296,51 @@ heartbeat once per second while idle, and sends samples while the Pencil moves
 or is held. If the desktop disappears for five seconds the app starts a new
 handshake with the same token, so restarting the desktop does not require
 touching the iPad. The most common failure is a token mismatch: both sides must
-have the same 32 hexadecimal characters. The app accepts pasted text with
-spaces, `-`, or `:` separators.
+have the same pairing code. The app accepts either a six-character code or a
+full 32-character token, with spaces, `-`, or `:` separators.
+
+### USB end-to-end
+
+USB needs `usbmuxd`, the daemon that owns the cable connection, plus the usual
+trust step. On Linux, install it with your distribution's `usbmuxd` package
+(for example `sudo apt install usbmuxd`) and check that it is running:
+
+```sh
+systemctl status usbmuxd
+idevice_id -l          # from libimobiledevice-utils
+cargo run -- doctor
+```
+
+Then:
+
+1. Connect the iPad by cable and tap **Trust** when the iPad asks. Start
+   `cargo run -- devices`; it prints one line per attached device:
+   `00008110-… device 3 product 0x12ab USB`. No devices means the cable, trust,
+   or daemon is wrong, not the app.
+2. In the iPad app, choose **USB** and keep the default TCP port 37690. Enter
+   the pairing code. Tap **Start streaming**; the app listens for the desktop.
+3. On the desktop, run:
+
+   ```sh
+   cargo run -- run --transport usb
+   ```
+
+   With two iPads attached, add `--serial` with the serial or a unique fragment
+   from `devices`.
+
+4. The desktop opens a connection to port 37690 inside the app through
+   `usbmuxd`, prints `connecting to SERIAL over usb (port 37690)`, then
+   `session N accepted from usb connection M`. From here the session behaves
+   exactly like Wi-Fi: same handshake, heartbeat, samples, watchdog, and
+   `input latency` summary.
+5. Stopping the app or unplugging the cable ends the desktop session; start it
+   again to reconnect.
+
+Start the iPad app before the desktop command. `usbmuxd` refuses a connection to
+a port no app is listening on, which is reported as
+`the iPad refused the connection on TCP port 37690`. The desktop does not retry:
+open the app, then run the command again. Firmware and Mac/Windows setups also
+work when `usbmuxd` is reachable, but Linux is the reference platform.
 
 ### Latency
 
@@ -325,8 +392,7 @@ Make it persistent with `wifi.powersave = 2` in
 NetworkManager, or disable power saving for the adapter in the desktop
 environment's settings. A phone hotspot is the other common cause: it
 advertises a long beacon interval and buffers frames for sleeping clients.
-Using the same router as both devices, or waiting for the USB transport (M4),
-avoids it.
+Using the same router as both devices, or switching to USB, avoids it.
 
 The app does not keep a backlog: a burst of samples is coalesced to the newest
 position before it is sent, so a short stall costs one frame rather than
@@ -383,7 +449,8 @@ transport = "wifi"
 bind = "0.0.0.0"
 udp_port = 37689
 tcp_port = 37690
-token = "000102030405060708090a0b0c0d0e0f"
+# A six-character pairing code, or 32 hexadecimal characters.
+token = "K7M2QX"
 watchdog_ms = 750
 session_timeout_ms = 5000
 pressure_default = 32768
@@ -412,14 +479,25 @@ are rejected rather than silently ignored.
 
 ### Pairing
 
-The desktop generates a 16-byte token with `absolutetouch token --reset`. The
-iPad must present the same token in `HELLO`; a mismatch is rejected and logged,
-without a reply. While a session is active the desktop pins it to the source
-address that completed the handshake, so another peer cannot take over.
-Regenerating the token invalidates the old pairing.
+`absolutetouch token --reset` generates a six-character pairing code and writes
+it to the config file. Six Crockford base32 characters carry 30 bits, which is
+short enough to type on an iPad and long enough that accidental collisions are
+unlikely; the desktop expands the code to the 16-byte wire token with a
+deterministic FNV-1a expansion. The expansion is not a password hash and adds no
+entropy: the code is the secret, and the token travels in clear text.
+`absolutetouch token --reset --hex` writes a full 32-character token instead,
+and the `token` field accepts either form.
+
+The iPad must present the same token in `HELLO`; a mismatch is rejected and
+logged, without a reply. Five wrong tokens are answered per 30-second window and
+further guesses in that window are dropped silently and counted as rate
+limited, which is what makes a 30-bit code too slow to brute force. A correct
+code clears the budget. While a session is active the desktop pins it to the
+peer that completed the handshake, so another peer cannot take over.
+Regenerating the code invalidates the old pairing.
 
 The token is sent in clear text and is not encryption. Use it on a trusted
-network, or use USB. Enter the same token in the iPad app; it is kept in the
+network, or use USB. Enter the same code in the iPad app; it is kept in the
 app's `UserDefaults`, which is convenient but not secure storage. When the
 desktop has no token configured it accepts any token and echoes it back, so
 configuring one is recommended even on a home network.
@@ -446,23 +524,25 @@ tablet.
 
 ## Troubleshooting
 
-| Symptom                                             | Check                                                                                                                                                                   |
-| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| No cursor movement                                  | `doctor`, firewall, correct desktop IP, token, iPad foreground; then check that `run` was not started with `--dry-run` or `--backend mock`, which never create a device |
-| App stays on **Connecting**                         | Same network, port 37689, matching token, desktop logs; check the app's token field                                                                                     |
-| **Connecting** for a few seconds after a crash      | The desktop still holds the old peer; it clears after the 5000 ms session timeout                                                                                       |
-| App says **Disconnected**                           | The transport closed: relaunch the app, check Wi-Fi, then start again                                                                                                   |
-| Hover works but contact does not                    | Pencil tip, app foreground, canvas not covered by the HUD                                                                                                               |
-| Cursor moves but buttons stick                      | Stop the desktop; the watchdog should release. Report a bug with a trace                                                                                                |
-| Pointer trails behind the Pencil, or lags in bursts | Check `input latency` in the summary, then Wi-Fi power saving (`iw dev wlan0 get power_save`) and the access point; see [Latency](#latency)                             |
-| `doctor` says `/dev/uinput` missing                 | Load the module, fix the udev rule, log out and in                                                                                                                      |
-| `uinput` is present but not writable                | Recheck the udev rule and group membership; `newgrp input` or log in again                                                                                              |
-| No **AbsoluteTouch Pointer** (or **Tablet**) device | The session process must be running; check `/proc/bus/input/devices` and the `device` setting                                                                           |
-| Game ignores the tablet                             | Select the device explicitly, or check Raw Input/tablet settings                                                                                                        |
-| Local network prompt never appears                  | Reinstall or reset the app; check Settings → Privacy → Local Network                                                                                                    |
-| USB device not listed                               | Trust the iPad, check `usbmuxd`, try `idevice_id -l`                                                                                                                    |
-| iOS build fails on signing                          | Set the development team; CI builds use `CODE_SIGNING_ALLOWED=NO`                                                                                                       |
-| TestFlight upload fails                             | Check the `testflight` environment secrets and API key permissions; run the TestFlight toggle from the Release workflow                                                 |
+| Symptom                                              | Check                                                                                                                                                                   |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No cursor movement                                   | `doctor`, firewall, correct desktop IP, token, iPad foreground; then check that `run` was not started with `--dry-run` or `--backend mock`, which never create a device |
+| App stays on **Connecting**                          | Same network, port 37689, matching code, desktop logs; check the app's code field                                                                                       |
+| **Connecting** for a few seconds after a crash       | The desktop still holds the old peer; it clears after the 5000 ms session timeout                                                                                       |
+| App says **Disconnected**                            | The transport closed: relaunch the app, check Wi-Fi or the cable, then start again                                                                                      |
+| Hover works but contact does not                     | Pencil tip, app foreground, canvas not covered by the HUD                                                                                                               |
+| Cursor moves but buttons stick                       | Stop the desktop; the watchdog should release. Report a bug with a trace                                                                                                |
+| Pointer trails behind the Pencil, or lags in bursts  | Check `input latency` in the summary, then Wi-Fi power saving (`iw dev wlan0 get power_save`) and the access point; see [Latency](#latency)                             |
+| `doctor` says `/dev/uinput` missing                  | Load the module, fix the udev rule, log out and in                                                                                                                      |
+| `uinput` is present but not writable                 | Recheck the udev rule and group membership; `newgrp input` or log in again                                                                                              |
+| No **AbsoluteTouch Pointer** (or **Tablet**) device  | The session process must be running; check `/proc/bus/input/devices` and the `device` setting                                                                           |
+| Game ignores the tablet                              | Select the device explicitly, or check Raw Input/tablet settings                                                                                                        |
+| Local network prompt never appears                   | Reinstall or reset the app; check Settings → Privacy → Local Network                                                                                                    |
+| `devices` says no devices                            | Cable, iPad trust prompt, `systemctl status usbmuxd`, `idevice_id -l`                                                                                                   |
+| `run --transport usb` says the daemon is unreachable | Start `usbmuxd` and check `ABSOLUTETOUCH_USBMUX_SOCKET`; `doctor` prints the path it tried                                                                              |
+| USB says the iPad refused the port                   | The app is not listening: choose **USB**, tap **Start streaming**, then run the desktop command                                                                         |
+| iOS build fails on signing                           | Set the development team; CI builds use `CODE_SIGNING_ALLOWED=NO`                                                                                                       |
+| TestFlight upload fails                              | Check the `testflight` environment secrets and API key permissions; run the TestFlight toggle from the Release workflow                                                 |
 
 When reporting a bug, include the OS, backend, transport, and a recorded trace.
 Never include tokens or personal network details.

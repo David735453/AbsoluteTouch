@@ -20,16 +20,28 @@ fn report_linux() {
 
     let uinput = Path::new("/dev/uinput");
     println!("uinput: {}", describe_device(uinput));
+    report_usbmuxd();
+}
 
-    let usbmuxd = Path::new("/var/run/usbmuxd");
-    println!(
-        "usbmuxd: {}",
-        if usbmuxd.exists() {
-            "socket present"
-        } else {
-            "socket missing"
-        }
-    );
+/// Probe the daemon instead of trusting that the socket file exists.
+///
+/// A stale socket from a stopped daemon looks identical to a working one on
+/// disk, so the check connects and asks for the device list.
+#[cfg(target_os = "linux")]
+fn report_usbmuxd() {
+    use crate::transport::usbmux::Daemon;
+
+    match Daemon::connect() {
+        Ok(mut daemon) => match daemon.list_devices() {
+            Ok(devices) => println!(
+                "usbmuxd: {} ({} device(s) attached)",
+                daemon.path().display(),
+                devices.len()
+            ),
+            Err(error) => println!("usbmuxd: connected but unusable: {error}"),
+        },
+        Err(error) => println!("usbmuxd: {error}"),
+    }
 }
 
 #[cfg(target_os = "linux")]

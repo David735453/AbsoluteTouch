@@ -146,5 +146,42 @@
       "reserved": 0,
       "auth_tag": "0000000000000000"
     }
-  ]
+  ],
+  "pairing": {
+    "code_length": 6,
+    "alphabet": "0123456789ABCDEFGHJKMNPQRSTVWXYZ",
+    "domain": "absolutetouch.pairing.v1:",
+    "vectors": [
+      {
+        "input": "K7M2QX",
+        "description": "Canonical code with letters and digits.",
+        "code": "K7M2QX",
+        "token": "6e2db14e438bca80d0a059efa9f1682d"
+      },
+      {
+        "input": "k7m-2qx",
+        "description": "Lower case with a separator, as a user might type it.",
+        "code": "K7M2QX",
+        "token": "6e2db14e438bca80d0a059efa9f1682d"
+      },
+      {
+        "input": "0O1IL2",
+        "description": "Letters Crockford excludes fold to the digits they resemble.",
+        "code": "001112",
+        "token": "47a0ff52521a95c785377c8dab06152a"
+      },
+      {
+        "input": "000000",
+        "description": "Smallest code; leading zeros are significant.",
+        "code": "000000",
+        "token": "5e8367d94b45a870b9a018ad807e7c40"
+      },
+      {
+        "input": "ZZZZZZ",
+        "description": "Largest code.",
+        "code": "ZZZZZZ",
+        "token": "0a78a3827c3e4c371efeb2528ee6b35c"
+      }
+    ]
+  }
 }

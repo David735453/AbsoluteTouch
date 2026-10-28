@@ -2,19 +2,50 @@ import AbsoluteTouchCore
 import Foundation
 import Observation
 
+/// How the iPad reaches the desktop.
+enum TransportChoice: String, CaseIterable {
+	/// Wi-Fi UDP; the desktop listens and the iPad sends.
+	case wifi
+
+	/// USB through `usbmuxd`; the iPad listens and the desktop connects.
+	case usb
+
+	/// Name shown in the transport picker.
+	var title: String {
+		switch self {
+		case .wifi: "Wi-Fi"
+		case .usb: "USB"
+		}
+	}
+
+	/// Default port for this transport.
+	var defaultPort: UInt16 {
+		switch self {
+		case .wifi: ConnectionSettings.defaultPort
+		case .usb: ConnectionSettings.defaultUSBPort
+		}
+	}
+}
+
 /// Everything needed to reach one desktop.
 struct ConnectionSettings: Equatable {
-	/// Desktop IP address or host name.
+	/// Transport that carries the session.
+	var transport: TransportChoice = .wifi
+
+	/// Desktop IP address or host name; unused over USB.
 	var host: String
 
-	/// Desktop UDP port.
+	/// Desktop port: UDP over Wi-Fi, TCP over USB.
 	var port: UInt16
 
-	/// Pairing token shared with the desktop.
+	/// Pairing secret shared with the desktop.
 	var token: PairingToken
 
 	/// Default Wi-Fi UDP port from the protocol.
 	static let defaultPort: UInt16 = 37_689
+
+	/// Default USB TCP port from the protocol.
+	static let defaultUSBPort: UInt16 = 37_690
 }
 
 /// Owns the streaming session and publishes state to SwiftUI.
@@ -46,13 +77,24 @@ final class StreamingViewModel {
 			return
 		}
 
-		let transport: UDPTransport
-		do {
-			transport = try UDPTransport(host: settings.host, port: settings.port)
-		} catch {
-			state = .failed(.transport(error.localizedDescription))
-			isActive = true
-			return
+		let transport: any DatagramTransport
+		switch settings.transport {
+		case .wifi:
+			do {
+				transport = try UDPTransport(host: settings.host, port: settings.port)
+			} catch {
+				state = .failed(.transport(error.localizedDescription))
+				isActive = true
+				return
+			}
+		case .usb:
+			do {
+				transport = try TCPTransport(port: settings.port)
+			} catch {
+				state = .failed(.transport(error.localizedDescription))
+				isActive = true
+				return
+			}
 		}
 
 		let controller = SessionController(

@@ -51,6 +51,15 @@ public struct PairingToken: Sendable, Hashable {
 		self.bytes = bytes
 	}
 
+	/// Create a token from a pairing code typed by the user.
+	///
+	/// - Parameter code: A code such as `K7M2QX`; separators and the letters
+	///   Crockford excludes are accepted.
+	/// - Throws: ``PairingCodeError`` when the text is not a valid code.
+	public init(code: String) throws {
+		self = try PairingCode.token(from: code)
+	}
+
 	/// A new random token from the system random number generator.
 	public static func random() -> PairingToken {
 		var generator = SystemRandomNumberGenerator()

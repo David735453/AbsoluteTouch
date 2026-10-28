@@ -60,6 +60,75 @@ def token_words(token: bytes) -> dict[str, int]:
     }
 
 
+CODE_LENGTH = 6
+CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+CODE_DOMAIN = b"absolutetouch.pairing.v1:"
+FNV_OFFSET_BASIS = 0xCBF29CE484222325
+FNV_PRIME = 0x00000100000001B3
+
+
+def fnv1a64(data: bytes) -> int:
+    """FNV-1a over the 64-bit variant, as published by the FNV specification."""
+    value = FNV_OFFSET_BASIS
+    for byte in data:
+        value ^= byte
+        value = (value * FNV_PRIME) & 0xFFFFFFFFFFFFFFFF
+    return value
+
+
+def normalize_code(text: str) -> str:
+    """Fold a typed pairing code to its canonical upper-case form."""
+    folded = []
+    for character in text:
+        if character.isspace() or character in "-:":
+            continue
+        upper = character.upper()
+        upper = {"I": "1", "L": "1", "O": "0"}.get(upper, upper)
+        if upper not in CODE_ALPHABET:
+            raise ValueError(f"{character!r} is not a pairing code character")
+        folded.append(upper)
+    code = "".join(folded)
+    if len(code) != CODE_LENGTH:
+        raise ValueError(f"pairing code must have {CODE_LENGTH} characters, got {len(code)}")
+    return code
+
+
+def code_token(code: str) -> bytes:
+    """Expand a normalized code into the 16-byte wire token."""
+    first = CODE_DOMAIN + code.encode("ascii")
+    high = fnv1a64(first)
+    low = fnv1a64(first + struct.pack("<Q", high))
+    return struct.pack("<QQ", high, low)
+
+
+def pairing() -> dict:
+    """Build the pairing-code vectors."""
+    inputs = [
+        ("K7M2QX", "Canonical code with letters and digits."),
+        ("k7m-2qx", "Lower case with a separator, as a user might type it."),
+        ("0O1IL2", "Letters Crockford excludes fold to the digits they resemble."),
+        ("000000", "Smallest code; leading zeros are significant."),
+        ("ZZZZZZ", "Largest code."),
+    ]
+    vectors = []
+    for text, description in inputs:
+        code = normalize_code(text)
+        vectors.append(
+            {
+                "input": text,
+                "description": description,
+                "code": code,
+                "token": code_token(code).hex(),
+            }
+        )
+    return {
+        "code_length": CODE_LENGTH,
+        "alphabet": CODE_ALPHABET,
+        "domain": CODE_DOMAIN.decode("ascii"),
+        "vectors": vectors,
+    }
+
+
 def packet(
     *,
     packet_type: int,
@@ -330,6 +399,7 @@ def build() -> dict:
         "version": VERSION,
         "packet_size": PACKET_SIZE,
         "packets": packets,
+        "pairing": pairing(),
     }
 
 
