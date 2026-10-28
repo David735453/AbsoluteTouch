@@ -7,7 +7,7 @@ name: CodeQL
 # cannot select one.
 #
 # Revert to default setup with:
-#   gh api --method PATCH repos/David735453/AbsoluteTouch/code-scanning/default-setup \
+#   gh api --method PATCH repos/dStudios-735453/AbsoluteTouch/code-scanning/default-setup \
 #     -f state=configured -f query_suite=default \
 #     -f 'languages[]=actions' -f 'languages[]=python' \
 #     -f 'languages[]=ruby' -f 'languages[]=rust'

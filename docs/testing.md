@@ -257,7 +257,7 @@ requests — and every job is read-only apart from `security-events: write`.
 Reverting to default setup is one API call plus deleting the workflow:
 
 ```sh
-gh api --method PATCH repos/David735453/AbsoluteTouch/code-scanning/default-setup \
+gh api --method PATCH repos/dStudios-735453/AbsoluteTouch/code-scanning/default-setup \
   -f state=configured -f query_suite=default \
   -f 'languages[]=actions' -f 'languages[]=python' \
   -f 'languages[]=ruby' -f 'languages[]=rust'
@@ -265,7 +265,7 @@ gh api --method PATCH repos/David735453/AbsoluteTouch/code-scanning/default-setu
 
 ```sh
 gh workflow run codeql.yml
-gh api repos/David735453/AbsoluteTouch/code-scanning/alerts --jq '.[].rule.id'
+gh api repos/dStudios-735453/AbsoluteTouch/code-scanning/alerts --jq '.[].rule.id'
 ```
 
 ### `release.yml`

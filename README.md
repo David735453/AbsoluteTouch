@@ -41,7 +41,7 @@ later; the host substitutes a configurable level when pressure is unavailable.
 ## Quick start
 
 ```sh
-git clone https://github.com/David735453/AbsoluteTouch.git
+git clone https://github.com/dStudios-735453/AbsoluteTouch.git
 cd AbsoluteTouch
 
 make setup         # enable the tracked pre-commit hook

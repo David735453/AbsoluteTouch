@@ -27,7 +27,7 @@ iOS 27 SDK while the deployment target stays at 17.0.
 ## Desktop
 
 ```sh
-git clone https://github.com/David735453/AbsoluteTouch.git
+git clone https://github.com/dStudios-735453/AbsoluteTouch.git
 cd AbsoluteTouch
 
 cd desktop

@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.99"
 description = "Absolute tablet input bridge for iPad"
 license = "MIT"
-repository = "https://github.com/David735453/AbsoluteTouch"
+repository = "https://github.com/dStudios-735453/AbsoluteTouch"
 publish = false
 
 [[bin]]
