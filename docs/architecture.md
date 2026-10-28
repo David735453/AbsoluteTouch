@@ -310,8 +310,10 @@ idle ──start──▶ connecting(attempt) ──HELLO_ACK──▶ streaming
 
 ### USB
 
-- The iPad listens on TCP port 37690; the desktop connects through the local
-  `usbmuxd` daemon.
+- The iPad listens on TCP port 37690, bound to `127.0.0.1`: `usbmuxd` opens the
+  connection from inside the iPad, so loopback is the only address that matters
+  and the only one that needs no local network permission. The desktop connects
+  through the local `usbmuxd` daemon.
 - The desktop speaks the daemon's framed XML-plist protocol just long enough to
   run `ListDevices` and `Connect`, then uses the same socket as a raw byte pipe.
 - The protocol, handshake, session rules, and packet stream are identical to
@@ -319,9 +321,12 @@ idle ──start──▶ connecting(attempt) ──HELLO_ACK──▶ streaming
   packets with a frame decoder.
 - `absolutetouch devices` lists attached iPads; `--serial` selects between them.
   A refused connection means the iPad app is not listening yet, because
-  `usbmuxd` only forwards to an open port inside the app.
+  `usbmuxd` only forwards to an open port inside the app. A listener that is
+  waiting for a network path is not bound either, so the app treats `.waiting`
+  as a failure instead of retrying `HELLO` forever.
 - USB avoids Wi-Fi jitter and local-network permission prompts, but depends on
-  the platform's `usbmuxd` support.
+  the platform's `usbmuxd` support and on the iPad keeping the app in the
+  foreground. The app disables the idle timer while a session is open.
 
 ## Safety
 

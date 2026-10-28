@@ -74,6 +74,10 @@ session layer expects whole 40-byte packets and identifies peers by address.
 - USB removes Wi-Fi jitter from the path and needs no local-network permission.
   It depends on `usbmuxd`, a trusted cable pairing, and the app listening before
   the desktop connects. Startup order is documented in setup.
+- The iPad listener binds `127.0.0.1` rather than the wildcard address.
+  `usbmuxd` connects from inside the iPad, so loopback is sufficient, and a
+  wildcard listener would wait on the local network permission prompt without
+  binding the port, which looks like a hung session from both sides.
 - `doctor` now connects to the daemon instead of checking for a socket file, so
   a stopped `usbmuxd` is reported instead of a false positive from a stale
   socket.

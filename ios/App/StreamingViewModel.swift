@@ -1,6 +1,7 @@
 import AbsoluteTouchCore
 import Foundation
 import Observation
+import UIKit
 
 /// How the iPad reaches the desktop.
 enum TransportChoice: String, CaseIterable {
@@ -105,6 +106,7 @@ final class StreamingViewModel {
 		state = .connecting(attempt: 0)
 		statistics = SessionStatistics()
 		isActive = true
+		updateIdleTimer()
 		observe(controller)
 		Task { await controller.start() }
 	}
@@ -125,6 +127,7 @@ final class StreamingViewModel {
 		isActive = false
 		state = .idle
 		statistics = SessionStatistics()
+		updateIdleTimer()
 
 		if let controller {
 			Task { await controller.stop() }
@@ -138,6 +141,7 @@ final class StreamingViewModel {
 					return
 				}
 				self.state = state
+				self.updateIdleTimer()
 			}
 		}
 
@@ -154,5 +158,21 @@ final class StreamingViewModel {
 				self.statistics = await controller.statistics
 			}
 		}
+	}
+
+	/// Keep the screen awake for as long as a session can be used.
+	///
+	/// The iPad sits untouched while the desktop connects, so the default
+	/// auto-lock would suspend the app mid-session and close the USB
+	/// listener. A failed session releases the timer again so auto-lock still
+	/// applies once there is nothing to use.
+	private func updateIdleTimer() {
+		let keepAwake: Bool
+		if case .failed = state {
+			keepAwake = false
+		} else {
+			keepAwake = isActive
+		}
+		UIApplication.shared.isIdleTimerDisabled = keepAwake
 	}
 }

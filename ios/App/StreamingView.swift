@@ -91,7 +91,7 @@ struct StreamingView: View {
 
 			Text(
 				settings.transport == .usb
-					? "Check the cable, the iPad's trust prompt, and that `usbmuxd` is running on the desktop."
+					? "Check the cable and trust prompt, keep this app in the foreground, and confirm `usbmuxd` is running."
 					: "Check that the desktop is still running and that both devices are on the same network."
 			)
 			.font(.footnote)

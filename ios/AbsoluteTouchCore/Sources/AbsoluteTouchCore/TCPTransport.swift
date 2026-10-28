@@ -94,8 +94,22 @@ struct PacketFramer: Sendable {
 				// would add a frame of latency for no gain.
 				options.noDelay = true
 			}
+			// Restarting a session must not collide with the previous
+			// listener while its socket is still in `TIME_WAIT`.
+			parameters.allowLocalEndpointReuse = true
 
-			self.listener = try NWListener(using: parameters, on: endpointPort)
+			// `usbmuxd` opens the connection from inside the app, so bind
+			// loopback only. A wildcard listener is also reachable from Wi-Fi
+			// and, on iOS 14+, waits on the local network permission prompt;
+			// while it waits the port is not bound at all, which `usbmuxd`
+			// reports as "Connection refused". Loopback needs no permission
+			// and no network path, so the listener reaches `.ready` immediately.
+			parameters.requiredLocalEndpoint = .hostPort(
+				host: .ipv4(.loopback),
+				port: endpointPort
+			)
+
+			self.listener = try NWListener(using: parameters)
 			self.queue = DispatchQueue(label: "org.dstudios.absolutetouch.tcp")
 			let (datagrams, continuation) = AsyncThrowingStream<[UInt8], Error>.makeStream()
 			self.datagrams = datagrams
@@ -111,8 +125,13 @@ struct PacketFramer: Sendable {
 				guard let self else {
 					return
 				}
-				if case .failed(let error) = state {
+				switch state {
+				case .failed(let error), .waiting(let error):
 					self.continuation.finish(throwing: error)
+				case .setup, .ready, .cancelled:
+					break
+				@unknown default:
+					break
 				}
 			}
 			listener.newConnectionHandler = { [weak self] connection in
@@ -170,14 +189,26 @@ struct PacketFramer: Sendable {
 				case .ready:
 					self.receiveNext(on: connection)
 				case .failed(let error):
+					self.forget(connection)
 					self.continuation.finish(throwing: error)
-				case .cancelled, .setup, .preparing, .waiting:
+				case .cancelled:
+					self.forget(connection)
+				case .setup, .preparing, .waiting:
 					break
 				@unknown default:
 					break
 				}
 			}
 			connection.start(queue: queue)
+		}
+
+		/// Drop `connection` if it is still the active one.
+		private func forget(_ connection: NWConnection) {
+			lock.lock()
+			defer { lock.unlock() }
+			if self.connection === connection {
+				self.connection = nil
+			}
 		}
 
 		private func receiveNext(on connection: NWConnection) {

@@ -509,6 +509,10 @@ backend, transport, iPad model, and Pencil model to the result.
       an ambiguous fragment is rejected.
 - [ ] `run --transport usb` without the app running reports the refused port and
       names the port, instead of hanging.
+- [ ] The app reports a listener that cannot bind (for example a port already in
+      use) instead of sitting on "Waiting for USB" forever.
+- [ ] The iPad screen stays awake while a session is open, and auto-lock returns
+      to normal after stopping or after a failure.
 - [ ] With the app streaming and the code matching, the desktop prints
       `connecting to SERIAL over usb` and accepts the session.
 - [ ] The 40-byte stream survives Pencil bursts and pause/resume; `replay` of a

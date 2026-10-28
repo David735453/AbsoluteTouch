@@ -342,6 +342,14 @@ a port no app is listening on, which is reported as
 open the app, then run the command again. Firmware and Mac/Windows setups also
 work when `usbmuxd` is reachable, but Linux is the reference platform.
 
+The app binds its USB listener to `127.0.0.1` inside the iPad, because that is
+the only address `usbmuxd` connects to. Binding the wildcard address instead
+would also expose the port to Wi-Fi and, on iOS 14 and later, park the listener
+in the local network permission prompt: the port is then not bound at all and
+`usbmuxd` reports it as refused while the app still looks like it is waiting.
+Keep the app in the foreground; it holds the screen awake for the duration of a
+session, but a locked iPad suspends it and closes the listener.
+
 ### Latency
 
 The desktop prints an `input latency` line in the session summary: how much
@@ -540,7 +548,7 @@ tablet.
 | Local network prompt never appears                   | Reinstall or reset the app; check Settings → Privacy → Local Network                                                                                                    |
 | `devices` says no devices                            | Cable, iPad trust prompt, `systemctl status usbmuxd`, `idevice_id -l`                                                                                                   |
 | `run --transport usb` says the daemon is unreachable | Start `usbmuxd` and check `ABSOLUTETOUCH_USBMUX_SOCKET`; `doctor` prints the path it tried                                                                              |
-| USB says the iPad refused the port                   | The app is not listening: choose **USB**, tap **Start streaming**, then run the desktop command                                                                         |
+| USB says the iPad refused the port                   | The app is not listening: choose **USB**, tap **Start streaming**, keep the app in the foreground, then run the desktop command                                         |
 | iOS build fails on signing                           | Set the development team; CI builds use `CODE_SIGNING_ALLOWED=NO`                                                                                                       |
 | TestFlight upload fails                              | Check the `testflight` environment secrets and API key permissions; run the TestFlight toggle from the Release workflow                                                 |
 
