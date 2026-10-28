@@ -120,13 +120,13 @@ public enum PairingCodeError: Error, Sendable, Equatable {
 }
 
 extension PairingCodeError: LocalizedError {
-	/// A human-readable description.
+	/// A human-readable description in the device's language.
 	public var errorDescription: String? {
 		switch self {
 		case .length(let count):
-			"A pairing code has \(PairingCode.length) characters, not \(count)."
+			Localization.current.format(.pairingCodeLength, PairingCode.length, count)
 		case .character(let character):
-			"\(character) is not a pairing code character."
+			Localization.current.format(.pairingCodeCharacter, String(character))
 		}
 	}
 }

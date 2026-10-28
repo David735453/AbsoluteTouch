@@ -19,7 +19,7 @@
 		public var errorDescription: String? {
 			switch self {
 			case .invalidAddress:
-				"Enter a desktop address and a port between 1 and 65535."
+				Localization.current.text(.udpInvalidAddress)
 			}
 		}
 	}

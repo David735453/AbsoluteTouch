@@ -14,8 +14,8 @@ enum TransportChoice: String, CaseIterable {
 	/// Name shown in the transport picker.
 	var title: String {
 		switch self {
-		case .wifi: "Wi-Fi"
-		case .usb: "USB"
+		case .wifi: Copy.text(.transportWiFi)
+		case .usb: Copy.text(.transportUSB)
 		}
 	}
 

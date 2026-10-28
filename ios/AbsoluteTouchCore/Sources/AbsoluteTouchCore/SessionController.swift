@@ -261,7 +261,7 @@ public actor SessionController {
 		guard !finished else {
 			return
 		}
-		await fail(.transport("The network connection closed."))
+		await fail(.transport(Localization.current.text(.networkClosed)))
 	}
 
 	private func connectionFailed(_ error: any Error) async {

@@ -72,15 +72,15 @@ struct ContentView: View {
 
 	private var header: some View {
 		VStack(alignment: .leading, spacing: 8) {
-			Label("iPad input bridge", systemImage: "pencil.tip")
+			Label(Copy.text(.headerBadge), systemImage: "pencil.tip")
 				.font(.subheadline.weight(.semibold))
 				.foregroundStyle(.tint)
 
-			Text("Turn your iPad and Apple Pencil into an absolute graphics tablet.")
+			Text(Copy.text(.headerTitle))
 				.font(.title2.weight(.semibold))
 				.fixedSize(horizontal: false, vertical: true)
 
-			Text("Enter the desktop's address or connect by cable, then enter the pairing code.")
+			Text(Copy.text(.headerSubtitle))
 				.font(.subheadline)
 				.foregroundStyle(.secondary)
 				.fixedSize(horizontal: false, vertical: true)

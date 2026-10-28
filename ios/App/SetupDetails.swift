@@ -8,37 +8,19 @@ struct HowToCard: View {
 
 	var body: some View {
 		Card {
-			Text("How to connect")
+			Text(Copy.text(.howToConnect))
 				.font(.headline)
 
 			VStack(alignment: .leading, spacing: 10) {
 				switch transport {
 				case .wifi:
-					step(
-						1,
-						"On the desktop, run `cargo run -- run`. Enter that machine's local IP address and UDP port 37689 here."
-					)
-					step(
-						2,
-						"Copy the pairing code with `cargo run -- token`, or create one with `cargo run -- token --reset`."
-					)
-					step(
-						3,
-						"Use the same code here and start streaming. Both devices must be on the same Wi-Fi network."
-					)
+					step(1, Copy.text(.wifiStep1))
+					step(2, Copy.text(.wifiStep2))
+					step(3, Copy.text(.wifiStep3))
 				case .usb:
-					step(
-						1,
-						"Connect the iPad by cable, trust this computer, and start streaming. The app listens for the desktop."
-					)
-					step(
-						2,
-						"On the desktop, run `cargo run -- run --transport usb` and copy the pairing code from `cargo run -- token`."
-					)
-					step(
-						3,
-						"Use the same code here. `usbmuxd` must be running; `cargo run -- devices` shows attached iPads."
-					)
+					step(1, Copy.text(.usbStep1))
+					step(2, Copy.text(.usbStep2))
+					step(3, Copy.text(.usbStep3))
 				}
 			}
 			.font(.callout)
@@ -48,7 +30,7 @@ struct HowToCard: View {
 
 	private func step(_ number: Int, _ text: String) -> some View {
 		HStack(alignment: .firstTextBaseline, spacing: 10) {
-			Text("\(number).")
+			Text(Copy.format(.stepNumber, number))
 				.font(.callout.monospacedDigit().weight(.semibold))
 				.frame(width: 18, alignment: .trailing)
 			Text(text)
@@ -61,16 +43,25 @@ struct HowToCard: View {
 struct ProtocolCard: View {
 	var body: some View {
 		Card {
-			Text("Wire protocol")
+			Text(Copy.text(.wireProtocol))
 				.font(.headline)
 
 			Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 10) {
-				row("Version", "\(ProtocolSpec.version)")
-				row("Packet size", "\(ProtocolSpec.packetSize) bytes")
-				row("Magic", "0x5441 (AT)")
-				row("Transport", "Wi-Fi UDP or USB")
-				row("Pairing code", "\(PairingCode.length) characters")
-				row("Device capabilities", "Tilt and hover")
+				row(Copy.text(.protocolVersionLabel), "\(ProtocolSpec.version)")
+				row(
+					Copy.text(.protocolPacketSizeLabel),
+					Copy.format(.packetSizeValue, ProtocolSpec.packetSize)
+				)
+				row(Copy.text(.protocolMagicLabel), Copy.text(.magicValue))
+				row(Copy.text(.protocolTransportLabel), Copy.text(.transportValue))
+				row(
+					Copy.text(.protocolPairingCodeLabel),
+					Copy.format(.pairingCodeLengthValue, PairingCode.length)
+				)
+				row(
+					Copy.text(.protocolCapabilitiesLabel),
+					Copy.text(.capabilitiesValue)
+				)
 			}
 			.font(.callout)
 		}
@@ -90,11 +81,17 @@ struct ProtocolCard: View {
 /// Milestone and version line.
 struct SetupFooter: View {
 	var body: some View {
-		Text("M4 · Version \(marketingVersion) · Protocol v\(ProtocolSpec.version)")
-			.font(.footnote)
-			.foregroundStyle(.secondary)
-			.frame(maxWidth: .infinity, alignment: .center)
-			.padding(.top, 8)
+		Text(
+			Copy.format(
+				.setupFooter,
+				marketingVersion,
+				ProtocolSpec.version
+			)
+		)
+		.font(.footnote)
+		.foregroundStyle(.secondary)
+		.frame(maxWidth: .infinity, alignment: .center)
+		.padding(.top, 8)
 	}
 
 	private var marketingVersion: String {

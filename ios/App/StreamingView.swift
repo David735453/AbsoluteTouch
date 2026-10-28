@@ -62,7 +62,7 @@ struct StreamingView: View {
 			Button {
 				onStop()
 			} label: {
-				Label("Stop", systemImage: "stop.fill")
+				Label(Copy.text(.stop), systemImage: "stop.fill")
 			}
 			.buttonStyle(.borderedProminent)
 			.tint(.red)
@@ -80,7 +80,7 @@ struct StreamingView: View {
 				.foregroundStyle(.red)
 				.accessibilityHidden(true)
 
-			Text("Connection failed")
+			Text(Copy.text(.connectionFailed))
 				.font(.title3.weight(.semibold))
 
 			Text(failure.localizedDescription)
@@ -90,9 +90,9 @@ struct StreamingView: View {
 				.fixedSize(horizontal: false, vertical: true)
 
 			Text(
-				settings.transport == .usb
-					? "Check the cable and trust prompt, keep this app in the foreground, and confirm `usbmuxd` is running."
-					: "Check that the desktop is still running and that both devices are on the same network."
+				Copy.text(
+					settings.transport == .usb ? .failureHintUSB : .failureHintWiFi
+				)
 			)
 			.font(.footnote)
 			.multilineTextAlignment(.center)
@@ -102,7 +102,7 @@ struct StreamingView: View {
 			Button {
 				onStop()
 			} label: {
-				Label("Back to setup", systemImage: "chevron.backward")
+				Label(Copy.text(.backToSetup), systemImage: "chevron.backward")
 			}
 			.buttonStyle(.borderedProminent)
 			.controlSize(.large)
@@ -128,13 +128,13 @@ struct StreamingView: View {
 	private var statusTitle: String {
 		switch viewModel.state {
 		case .idle:
-			"Not streaming"
+			Copy.text(.statusIdle)
 		case .connecting:
-			"Connecting"
+			Copy.text(.statusConnecting)
 		case .streaming:
-			"Streaming"
+			Copy.text(.statusStreaming)
 		case .failed:
-			"Disconnected"
+			Copy.text(.statusDisconnected)
 		}
 	}
 
@@ -142,15 +142,15 @@ struct StreamingView: View {
 		let endpoint = endpointDescription
 		switch viewModel.state {
 		case .idle:
-			return "No session"
+			return Copy.text(.statusNoSession)
 		case .connecting(let attempt):
 			return attempt <= 1
-				? "Waiting for \(endpoint)"
-				: "Waiting for \(endpoint) · attempt \(attempt)"
+				? Copy.format(.statusWaiting, endpoint)
+				: Copy.format(.statusWaitingAttempt, endpoint, attempt)
 		case .streaming(let sessionID, _):
-			return "Session \(String(format: "%08X", sessionID)) · \(endpoint)"
+			return Copy.format(.statusSession, sessionID, endpoint)
 		case .failed:
-			return "The desktop did not accept the session"
+			return Copy.text(.statusRejected)
 		}
 	}
 
@@ -159,20 +159,26 @@ struct StreamingView: View {
 		case .wifi:
 			"\(settings.host):\(settings.port)"
 		case .usb:
-			"USB port \(settings.port)"
+			Copy.format(.endpointUSB, settings.port)
 		}
 	}
 
 	private var statisticsText: String {
-		var parts = ["\(viewModel.statistics.samplesSent) samples"]
+		var parts = [
+			Copy.format(.statisticsSamples, viewModel.statistics.samplesSent)
+		]
 		if viewModel.statistics.samplesCoalesced > 0 {
-			parts.append("\(viewModel.statistics.samplesCoalesced) coalesced")
+			parts.append(
+				Copy.format(.statisticsCoalesced, viewModel.statistics.samplesCoalesced)
+			)
 		}
 		if let roundTrip = viewModel.statistics.lastRoundTripMicroseconds {
-			parts.append(String(format: "%.1f ms RTT", Double(roundTrip) / 1_000))
+			parts.append(
+				Copy.format(.statisticsRoundTrip, Double(roundTrip) / 1_000)
+			)
 		}
 		if viewModel.statistics.timeouts > 0 {
-			parts.append("\(viewModel.statistics.timeouts) reconnects")
+			parts.append(Copy.format(.statisticsReconnects, viewModel.statistics.timeouts))
 		}
 		return parts.joined(separator: " · ")
 	}

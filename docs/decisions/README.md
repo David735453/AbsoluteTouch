@@ -15,6 +15,8 @@ context, the decision, and the consequences.
 | [0008](0008-linux-pointer-device.md)          | Pointer device is the Linux default; tablet mode is opt-in       |
 | [0009](0009-bounded-sender-queue.md)          | Bounded sender queue, coalesced batches, honest latency counters |
 | [0010](0010-pairing-codes-and-usb-framing.md) | Six-character pairing codes, rate limited; USB stream framing    |
+| [0011](0011-ipad-active-area.md)              | iPad drawing area in canvas fractions, with an aspect lock       |
+| [0012](0012-swift-string-tables.md)           | Strings in Swift tables so both builds and Linux tests see them  |
 
 Decisions are changed by adding a new ADR that supersedes the old one, not by
 rewriting history.
