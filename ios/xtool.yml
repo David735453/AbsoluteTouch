@@ -1,0 +1,6 @@
+version: 1
+bundleID: org.dstudios.absolutetouch
+infoPath: App/Info-xtool.plist
+iconPath: App/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png
+resources:
+  - App/PrivacyInfo.xcprivacy

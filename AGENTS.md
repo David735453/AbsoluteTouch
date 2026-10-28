@@ -23,7 +23,7 @@ Windows/macOS injection is not implemented.
 
 ## Git policy (non-negotiable)
 
-- **Never push.** Not to `origin`, not to a fork, not to a tag.
+- **Never push.** Not to `origin`, not to a fork, not to a tag, except with explicit permission, each push needing a new permission.
 - **Never commit without explicit approval.** Wait for the user to say
   "commit" or "make a commit" for the specific change.
 - Never amend, rebase, force-push, create a tag, or open a pull request without
@@ -91,6 +91,12 @@ swiftlint lint --quiet --strict
 
 # iOS project generation (macOS only)
 xcodegen generate --spec ios/project.yml
+
+# iOS app without Xcode (needs xtool; Linux or macOS)
+cd ios
+xtool dev build
+xtool dev build --sign --ipa
+xtool dev run --usb
 
 # Repository helpers
 make setup
@@ -174,6 +180,8 @@ desktop/               Rust CLI, protocol, mapping, injectors
 ios/AbsoluteTouchCore/ Swift package with UI-free logic and tests
 ios/App/               SwiftUI pairing shell and UIKit canvas
 ios/project.yml        XcodeGen project definition
+ios/Package.swift      SwiftPM manifest for the xtool build
+ios/xtool.yml          xtool bundle ID, icon, resources, Info.plist overrides
 docs/                  architecture, protocol, setup, testing, ADRs
 .github/workflows/     push/nightly CI, Swift CodeQL, and manual release/TestFlight
 .githooks/             tracked pre-commit hook (enabled by make setup/check/test/lint)

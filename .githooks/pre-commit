@@ -66,7 +66,7 @@ check_swift_format() {
         skip "swift format (no swift on PATH)"
         return 0
     fi
-    if out=$(swift format lint --strict --recursive ios/AbsoluteTouchCore ios/App 2>&1); then
+    if out=$(swift format lint --strict --recursive ios/AbsoluteTouchCore ios/App ios/Package.swift 2>&1); then
         ok "swift format"
     else
         fail "swift format (run: make fmt-swift)"
@@ -164,7 +164,7 @@ check_plists() {
         skip "plist syntax (no python3 on PATH)"
         return 0
     fi
-    for file in ios/App/Info.plist ios/App/PrivacyInfo.xcprivacy; do
+    for file in ios/App/Info.plist ios/App/Info-xtool.plist ios/App/PrivacyInfo.xcprivacy; do
         [ -f "$file" ] || continue
         if out=$(python3 -c 'import plistlib, sys; plistlib.load(open(sys.argv[1], "rb"))' "$file" 2>&1); then
             ok "plist $file"

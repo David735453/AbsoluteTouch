@@ -20,7 +20,10 @@ The canvas sends contact samples from coalesced touches plus a display-link
 keepalive, hover samples from a Pencil-only `UIHoverGestureRecognizer`, and one
 out-of-range sample when the Pencil lifts. The session repeats `HELLO` every
 500 ms, sends a heartbeat once per second, and re-handshakes after five seconds
-of silence. Stopping or backgrounding the app sends `BYE`.
+of silence. Over USB the listener also stays open when the desktop disconnects
+and the app re-handshakes as soon as a new connection arrives, so a restarted
+desktop `run` needs no new session on the iPad. Stopping or backgrounding the
+app sends `BYE`.
 
 ## Requirements
 
@@ -42,6 +45,26 @@ instead, then regenerate.
 
 Set your development team in the Xcode target's **Signing & Capabilities**
 tab. The bundle identifier is `org.dstudios.absolutetouch`.
+
+## Build without Xcode (xtool)
+
+[xtool](https://xtool.sh) builds the same sources with SwiftPM on Linux or
+macOS, which is how the app is run during development without an Apple
+machine. XcodeGen and Xcode remain the release path for TestFlight.
+
+```sh
+cd ios
+xtool dev build              # unsigned app in ios/xtool/AbsoluteTouch.app
+xtool dev build --sign --ipa # signed IPA in ios/xtool/AbsoluteTouch.ipa
+xtool dev run --usb          # install and launch on a connected iPad
+```
+
+`xtool.yml` names the bundle identifier and supplies the icon and privacy
+manifest. `xtool` reads `App/Info.plist`-style overrides from
+`App/Info-xtool.plist`, so the keys that differ from its defaults stay in one
+place; `Assets.xcassets` is used only by the Xcode build. Paths in `xtool.yml`
+are relative to `ios/`, and the build output (`ios/xtool/`, `ios/.bsp/`) is
+ignored by git.
 
 ## Toolchains
 

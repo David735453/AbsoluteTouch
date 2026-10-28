@@ -60,19 +60,28 @@ struct PacketFramer: Sendable {
 	///
 	/// Over USB the desktop is the TCP client, because it is the side that can
 	/// ask `usbmuxd` to open a connection to a port inside the app. The app
-	/// therefore listens on `port` and waits for one desktop connection.
+	/// therefore listens on `port` and accepts one desktop at a time.
 	///
 	/// `NWConnection` delivers arbitrary chunks; ``PacketFramer`` rebuilds the
 	/// 40-byte packets that ``SessionController`` expects. Until a desktop
 	/// connects, ``send(_:)`` drops packets: the handshake is idempotent and the
 	/// next `HELLO`, at most one interval later, starts the session.
+	///
+	/// Losing the desktop does not end the transport. The listener stays up, the
+	/// connection is forgotten, and ``events`` reports `peerDisconnected` so the
+	/// session can handshake again. Restarting the desktop command therefore
+	/// reconnects without a trip through the app's Stop button.
 	public final class TCPTransport: DatagramTransport, @unchecked Sendable {
 		/// Inbound packets, in arrival order.
 		public let datagrams: AsyncThrowingStream<[UInt8], Error>
 
+		/// Transport events, in order.
+		public let events: AsyncStream<TransportEvent>
+
 		private let listener: NWListener
 		private let queue: DispatchQueue
 		private let continuation: AsyncThrowingStream<[UInt8], Error>.Continuation
+		private let eventContinuation: AsyncStream<TransportEvent>.Continuation
 		private let lock = NSLock()
 		private var connection: NWConnection?
 		private var framer = PacketFramer()
@@ -114,6 +123,9 @@ struct PacketFramer: Sendable {
 			let (datagrams, continuation) = AsyncThrowingStream<[UInt8], Error>.makeStream()
 			self.datagrams = datagrams
 			self.continuation = continuation
+			let (events, eventContinuation) = AsyncStream<TransportEvent>.makeStream()
+			self.events = events
+			self.eventContinuation = eventContinuation
 		}
 
 		/// Start listening.
@@ -142,26 +154,34 @@ struct PacketFramer: Sendable {
 
 		/// Send one packet.
 		///
-		/// Packets sent before a desktop connects are dropped.
+		/// Packets sent before a desktop connects are dropped. A write that
+		/// races with the desktop closing the link is reported through
+		/// ``events`` instead of failing the session, because the listener
+		/// accepts the next desktop connection.
 		public func send(_ datagram: [UInt8]) async throws {
 			guard let connection = currentConnection() else {
 				return
 			}
 
 			let data = Data(datagram)
-			// Spell out the continuation type: the result is discarded, so leaving
-			// it to inference can make Swift choose the wrong `resume`.
-			try await withCheckedThrowingContinuation { (continuation: SendContinuation) in
-				connection.send(
-					content: data,
-					completion: .contentProcessed { error in
-						if let error {
-							continuation.resume(throwing: error)
-						} else {
-							continuation.resume()
+			do {
+				// Spell out the continuation type: the result is discarded, so
+				// leaving it to inference can make Swift choose the wrong
+				// `resume`.
+				try await withCheckedThrowingContinuation { (continuation: SendContinuation) in
+					connection.send(
+						content: data,
+						completion: .contentProcessed { error in
+							if let error {
+								continuation.resume(throwing: error)
+							} else {
+								continuation.resume()
+							}
 						}
-					}
-				)
+					)
+				}
+			} catch {
+				drop(connection)
 			}
 		}
 
@@ -170,6 +190,7 @@ struct PacketFramer: Sendable {
 			listener.cancel()
 			takeConnection()?.cancel()
 			continuation.finish()
+			eventContinuation.finish()
 		}
 
 		private func accept(_ connection: NWConnection) {
@@ -179,6 +200,9 @@ struct PacketFramer: Sendable {
 				connection.cancel()
 				return
 			}
+			// Bytes buffered for the previous desktop are not the start of this
+			// connection's packet stream.
+			framer = PacketFramer()
 			store(connection)
 
 			connection.stateUpdateHandler = { [weak self] state in
@@ -188,9 +212,8 @@ struct PacketFramer: Sendable {
 				switch state {
 				case .ready:
 					self.receiveNext(on: connection)
-				case .failed(let error):
-					self.forget(connection)
-					self.continuation.finish(throwing: error)
+				case .failed:
+					self.drop(connection)
 				case .cancelled:
 					self.forget(connection)
 				case .setup, .preparing, .waiting:
@@ -200,6 +223,19 @@ struct PacketFramer: Sendable {
 				}
 			}
 			connection.start(queue: queue)
+		}
+
+		/// Forget a connection the desktop closed and let the session know.
+		///
+		/// Safe to call from the transport queue and from ``send(_:)``: the
+		/// active connection is cleared under the lock, so only the first caller
+		/// reports the disconnect.
+		private func drop(_ connection: NWConnection) {
+			guard take(connection) else {
+				return
+			}
+			connection.cancel()
+			eventContinuation.yield(.peerDisconnected)
 		}
 
 		/// Drop `connection` if it is still the active one.
@@ -226,12 +262,8 @@ struct PacketFramer: Sendable {
 					}
 				}
 
-				if let error {
-					self.continuation.finish(throwing: error)
-					return
-				}
-				if isComplete {
-					self.continuation.finish()
+				if isComplete || error != nil {
+					self.drop(connection)
 					return
 				}
 				self.receiveNext(on: connection)
@@ -242,6 +274,17 @@ struct PacketFramer: Sendable {
 			lock.lock()
 			defer { lock.unlock() }
 			return connection
+		}
+
+		/// Clear `connection` if it is the active one.
+		private func take(_ connection: NWConnection) -> Bool {
+			lock.lock()
+			defer { lock.unlock() }
+			guard self.connection === connection else {
+				return false
+			}
+			self.connection = nil
+			return true
 		}
 
 		private func takeConnection() -> NWConnection? {

@@ -15,10 +15,20 @@ private func controllerConfiguration() -> SessionConfiguration {
 	)
 }
 
+private func acknowledgement(sessionID: UInt32) throws -> Packet {
+	var packet = Packet(type: .helloAck)
+	packet.sessionID = sessionID
+	packet.flags = [.capabilityTilt, .capabilityHover]
+	try packet.setToken(controllerToken.bytes)
+	return packet
+}
+
 private actor FakeTransport: DatagramTransport {
 	nonisolated let datagrams: AsyncThrowingStream<[UInt8], Error>
+	nonisolated let events: AsyncStream<TransportEvent>
 
 	private nonisolated let continuation: AsyncThrowingStream<[UInt8], Error>.Continuation
+	private nonisolated let eventContinuation: AsyncStream<TransportEvent>.Continuation
 	private var sentBytes: [[UInt8]] = []
 	private var isClosed = false
 
@@ -26,6 +36,9 @@ private actor FakeTransport: DatagramTransport {
 		let (datagrams, continuation) = AsyncThrowingStream<[UInt8], Error>.makeStream()
 		self.datagrams = datagrams
 		self.continuation = continuation
+		let (events, eventContinuation) = AsyncStream<TransportEvent>.makeStream()
+		self.events = events
+		self.eventContinuation = eventContinuation
 	}
 
 	func open() async throws {}
@@ -37,6 +50,7 @@ private actor FakeTransport: DatagramTransport {
 	func close() async {
 		isClosed = true
 		continuation.finish()
+		eventContinuation.finish()
 	}
 
 	nonisolated func push(_ packet: Packet) {
@@ -45,6 +59,10 @@ private actor FakeTransport: DatagramTransport {
 
 	nonisolated func fail(_ error: any Error) {
 		continuation.finish(throwing: error)
+	}
+
+	nonisolated func disconnect() {
+		eventContinuation.yield(.peerDisconnected)
 	}
 
 	func packets() -> [Packet] {
@@ -192,5 +210,52 @@ struct SessionControllerTests {
 
 		#expect(failed)
 		#expect(await transport.closed())
+	}
+
+	@Test("A lost desktop starts a new handshake and accepts the next one")
+	func peerDisconnectRestartsTheHandshake() async throws {
+		let transport = FakeTransport()
+		let controller = SessionController(
+			configuration: controllerConfiguration(),
+			transport: transport
+		)
+
+		await controller.start()
+
+		transport.push(try acknowledgement(sessionID: 91))
+		let streamed = await waitUntil {
+			await controller.currentState
+				== .streaming(
+					sessionID: 91,
+					hostCapabilities: [.capabilityTilt, .capabilityHover]
+				)
+		}
+		#expect(streamed)
+
+		transport.disconnect()
+
+		let reconnecting = await waitUntil {
+			await controller.currentState == .connecting(attempt: 1)
+		}
+		#expect(reconnecting)
+		#expect(await controller.statistics.timeouts == 0)
+
+		let helloResent = await waitUntil {
+			await transport.packets().filter { $0.type == .hello }.count >= 2
+		}
+		#expect(helloResent)
+
+		transport.push(try acknowledgement(sessionID: 92))
+		let resumed = await waitUntil {
+			await controller.currentState
+				== .streaming(
+					sessionID: 92,
+					hostCapabilities: [.capabilityTilt, .capabilityHover]
+				)
+		}
+		#expect(resumed)
+		#expect(await controller.statistics.sessions == 2)
+
+		await controller.stop()
 	}
 }

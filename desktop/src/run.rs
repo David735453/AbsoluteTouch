@@ -124,17 +124,39 @@ pub fn wifi(
     })
 }
 
-/// Run the USB session until `stop` is set or the iPad closes the stream.
+/// How long to wait between attempts to reach the iPad over USB.
+const USB_RETRY: Duration = Duration::from_millis(500);
+
+/// Longest single sleep while waiting for the iPad, so `stop` is honored soon.
+const USB_RETRY_SLICE: Duration = Duration::from_millis(50);
+
+/// Messages already printed while waiting for the iPad.
+#[derive(Debug, Default)]
+struct UsbStatus {
+    /// Serial and port in the "connecting to" line.
+    target: Option<String>,
+    /// Last connection failure, so a retry does not repeat it.
+    error: Option<String>,
+}
+
+/// Run the USB session until `stop` is set.
 ///
 /// `usbmuxd` is asked for the attached devices, one is selected (the only one,
 /// or the one `serial` names), and the daemon opens a TCP connection to the
 /// port the iPad app listens on. The resulting stream is a raw byte pipe, so
 /// [`FrameDecoder`] rebuilds the 40-byte packets the session expects.
 ///
+/// Losing the stream does not end the run. A stopped app, a pulled cable, or a
+/// restarted `usbmuxd` is retried every [`USB_RETRY`] until the iPad listens
+/// again or `stop` is set, and input is released the moment the stream drops.
+/// The next `HELLO` starts a fresh session, so the counters add up across
+/// reconnects. A trace covers the first connection only: replay cannot model
+/// the gap, and truncating at the disconnect is what keeps its summary exact.
+///
 /// # Errors
 ///
-/// Returns an error when `usbmuxd` is unreachable, no device matches, the iPad
-/// is not listening on the configured port, or the trace or injector fails.
+/// Returns an error when the trace or injector fails. Connection problems are
+/// retried and reported on stderr instead.
 pub fn usb(
     config: &Config,
     serial: Option<&str>,
@@ -142,84 +164,188 @@ pub fn usb(
     record: Option<&Path>,
     stop: &AtomicBool,
 ) -> Result<Report, Error> {
-    let mut daemon = Daemon::connect()?;
-    let devices = daemon.list_devices()?;
-    let device = usbmux::select(&devices, serial)?.clone();
-    eprintln!(
-        "connecting to {} over usb (port {})",
-        device.serial, config.tcp_port
-    );
-
-    let mut stream = daemon.connect_device(device.id, config.tcp_port)?;
-    // A short read timeout keeps the session tick and watchdog running when the
-    // app pauses; reads return `WouldBlock` instead of blocking the loop.
-    stream.set_read_timeout(Some(TICK))?;
-
-    let started = Instant::now();
-    let mut session = Session::new(session_config(config)?, mapping(config), started);
-    let mut recorder = record
-        .map(|path| TraceWriter::create(path, started))
-        .transpose()?;
-    let mut decoder = FrameDecoder::new();
-    let mut buffer = [0_u8; 1_024];
+    let mut session: Option<Session> = None;
+    let mut recorder: Option<TraceWriter> = None;
+    let mut trace_records = 0;
     let mut injected = 0;
+    let mut progress = UsbStatus::default();
 
-    while !stop.load(Ordering::Relaxed) {
-        match stream.read(&mut buffer) {
-            Ok(0) => {
-                eprintln!("usb connection closed by the iPad");
-                break;
-            }
-            Ok(count) => decoder.push(&buffer[..count]),
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-                ) => {}
-            Err(error) => {
-                eprintln!("usb read failed: {error}");
-                break;
-            }
+    while let Some((device, mut stream)) = usb_connect(config, serial, stop, &mut progress)? {
+        if session.is_none() {
+            // The first connection fixes the trace origin and the session's
+            // clock, so the offsets stay comparable with a single-session
+            // replay.
+            let started = Instant::now();
+            session = Some(Session::new(
+                session_config(config)?,
+                mapping(config),
+                started,
+            ));
+            recorder = record
+                .map(|path| TraceWriter::create(path, started))
+                .transpose()?;
         }
+        let session = session.as_mut().expect("session exists after connecting");
 
-        while let Some(frame) = decoder.next_frame() {
-            let now = Instant::now();
-            match Packet::decode(&frame) {
-                Ok(packet) => {
-                    if let Some(recorder) = &mut recorder {
-                        recorder.record(&packet, now)?;
-                    }
-                    session.handle(Peer::Connection(u64::from(device.id)), &packet, now);
+        let mut decoder = FrameDecoder::new();
+        let mut buffer = [0_u8; 1_024];
+
+        while !stop.load(Ordering::Relaxed) {
+            match stream.read(&mut buffer) {
+                Ok(0) => {
+                    eprintln!("usb connection closed by the iPad");
+                    break;
                 }
+                Ok(count) => decoder.push(&buffer[..count]),
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) => {}
                 Err(error) => {
-                    session.stats_mut().record_protocol_error();
-                    eprintln!("dropped invalid usb frame: {error}");
+                    eprintln!("usb read failed: {error}");
+                    break;
                 }
+            }
+
+            while let Some(frame) = decoder.next_frame() {
+                let now = Instant::now();
+                match Packet::decode(&frame) {
+                    Ok(packet) => {
+                        if let Some(recorder) = &mut recorder {
+                            recorder.record(&packet, now)?;
+                        }
+                        session.handle(Peer::Connection(u64::from(device.id)), &packet, now);
+                    }
+                    Err(error) => {
+                        session.stats_mut().record_protocol_error();
+                        eprintln!("dropped invalid usb frame: {error}");
+                    }
+                }
+            }
+
+            session.tick(Instant::now());
+            match apply_live_actions(
+                session,
+                injector,
+                &mut injected,
+                config.dry_run,
+                |bytes, _peer| stream.write_all(bytes).map(|()| bytes.len()),
+            ) {
+                Ok(()) => {}
+                Err(Error::Io(error)) if is_disconnect(&error) => {
+                    eprintln!("usb write failed: {error}");
+                    break;
+                }
+                Err(error) => return Err(error),
             }
         }
 
-        session.tick(Instant::now());
-        apply_live_actions(
-            &mut session,
-            injector,
-            &mut injected,
-            config.dry_run,
-            |bytes, _peer| stream.write_all(bytes).map(|()| bytes.len()),
-        )?;
+        session.disconnect();
+        injector.release_all()?;
+        progress.target = None;
+
+        if let Some(writer) = recorder.take() {
+            trace_records = writer.finish()?;
+            if !stop.load(Ordering::Relaxed) {
+                eprintln!("trace ended with the connection; recording a reconnect needs a new run");
+            }
+        }
     }
 
-    injector.release_all()?;
-
-    let trace_records = match recorder {
-        Some(recorder) => recorder.finish()?,
-        None => 0,
-    };
-
+    let stats = session.as_ref().map_or_else(Stats::default, |s| *s.stats());
     Ok(Report {
-        stats: *session.stats(),
+        stats,
         injected,
         recorded: trace_records,
     })
+}
+
+/// Connect to the iPad, retrying until it works or `stop` is set.
+///
+/// Prints each distinct failure once and waits [`USB_RETRY`] before the next
+/// attempt, so a stopped app or a pulled cable can be fixed without
+/// restarting the desktop.
+fn usb_connect(
+    config: &Config,
+    serial: Option<&str>,
+    stop: &AtomicBool,
+    progress: &mut UsbStatus,
+) -> Result<Option<(usbmux::Device, usbmux::Stream)>, Error> {
+    loop {
+        if stop.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+
+        match connect_once(config, serial, progress) {
+            Ok(connection) => {
+                progress.error = None;
+                return Ok(Some(connection));
+            }
+            Err(error) => {
+                let message = error.to_string();
+                if progress.error.as_deref() != Some(message.as_str()) {
+                    eprintln!(
+                        "{message} (retrying every {} ms; press Ctrl+C to stop)",
+                        USB_RETRY.as_millis()
+                    );
+                    progress.error = Some(message);
+                }
+            }
+        }
+
+        sleep_unless_stopped(USB_RETRY, stop);
+    }
+}
+
+/// One connection attempt, including the announcement line.
+fn connect_once(
+    config: &Config,
+    serial: Option<&str>,
+    progress: &mut UsbStatus,
+) -> Result<(usbmux::Device, usbmux::Stream), Error> {
+    let mut daemon = Daemon::connect()?;
+    let devices = daemon.list_devices()?;
+    let device = usbmux::select(&devices, serial)?.clone();
+
+    let target = format!(
+        "connecting to {} over usb (port {})",
+        device.serial, config.tcp_port
+    );
+    if progress.target.as_deref() != Some(target.as_str()) {
+        eprintln!("{target}");
+        progress.target = Some(target);
+    }
+
+    let stream = daemon.connect_device(device.id, config.tcp_port)?;
+    // A short read timeout keeps the session tick and watchdog running when the
+    // app pauses; reads return `WouldBlock` instead of blocking the loop.
+    stream.set_read_timeout(Some(TICK))?;
+    Ok((device, stream))
+}
+
+/// Sleep for `total`, returning early when `stop` is set.
+fn sleep_unless_stopped(total: Duration, stop: &AtomicBool) {
+    let deadline = Instant::now() + total;
+    while !stop.load(Ordering::Relaxed) {
+        let now = Instant::now();
+        if now >= deadline {
+            return;
+        }
+        std::thread::sleep(USB_RETRY_SLICE.min(deadline.saturating_duration_since(now)));
+    }
+}
+
+/// Whether an I/O error means the USB stream is gone and worth reconnecting.
+fn is_disconnect(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::BrokenPipe
+            | io::ErrorKind::ConnectionReset
+            | io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::NotConnected
+            | io::ErrorKind::UnexpectedEof
+    )
 }
 
 /// Replay a recorded trace through the same session and mapping code.

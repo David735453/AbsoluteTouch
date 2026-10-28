@@ -49,10 +49,15 @@ cargo fmt --all -- --check
 
 # Swift core only, on Linux or macOS
 swift test --package-path ios/AbsoluteTouchCore
-swift format lint --strict --recursive ios/AbsoluteTouchCore ios/App
+swift format lint --strict --recursive ios/AbsoluteTouchCore ios/App ios/Package.swift
 
 # The app target needs Xcode; CI builds it unsigned for the simulator
 xcodegen generate --spec ios/project.yml
+
+# Or build/install the app without Xcode, using xtool
+cd ios
+xtool dev build --ipa
+xtool dev run --usb
 
 # Optional SwiftLint (repository config in .swiftlint.yml)
 swiftlint lint --quiet --strict
@@ -426,6 +431,17 @@ are what the link does today.
 | ------------------------- | --------------: | -----------: | -------------------: | -----------: |
 | 8 short strokes, 1 s each |        ~1000 ea |      ~1 s ea |  4 of 8 runs, one ea |     72–79 ms |
 | 60 s mixed-speed stroke   |           11266 |       46.8 s |                   46 |      75.8 ms |
+| USB, same stroke mix      |            4017 |       60.3 s |                    0 |       3.8 ms |
+
+The USB row is the same iPad Air (M4) and Apple Pencil (USB-C) over `usbmuxd`
+on the same Linux desktop and `uinput` backend, recorded with
+`absolutetouch run --transport usb --record usb-timing.atrace` (76.9 s,
+4309 packets, 0 dropped, `last RTT: 1029 us`). Contact gaps above 33 ms are
+counted within a stroke, so the pauses while lifting and repositioning do not
+count as stalls. `replay --speed 1` reproduced `input latency: 671 us last,
+3836 us worst above floor` exactly, and its p99 arrival gap was 17.2 ms against
+a 16.6 ms median — the 60 Hz sample period plus under a millisecond of link
+jitter. USB delivers the same stream as Wi-Fi with none of the radio stalls.
 
 The long run is one stall per second of contact (46 in 46.8 s). Its contact
 excess percentiles were median 3.7 ms, p90 5.3 ms, p99 62.1 ms, max 75.8 ms,
@@ -507,21 +523,24 @@ backend, transport, iPad model, and Pencil model to the result.
 - [ ] `devices` lists the iPad serial, device id, product id, and `USB`.
 - [ ] Two attached iPads require `--serial`; a serial fragment selects one and
       an ambiguous fragment is rejected.
-- [ ] `run --transport usb` without the app running reports the refused port and
-      names the port, instead of hanging.
+- [ ] `run --transport usb` without the app running reports the refused port,
+      names the port, and keeps retrying instead of exiting.
 - [ ] The app reports a listener that cannot bind (for example a port already in
       use) instead of sitting on "Waiting for USB" forever.
 - [ ] The iPad screen stays awake while a session is open, and auto-lock returns
       to normal after stopping or after a failure.
 - [ ] With the app streaming and the code matching, the desktop prints
       `connecting to SERIAL over usb` and accepts the session.
-- [ ] The 40-byte stream survives Pencil bursts and pause/resume; `replay` of a
+- [x] The 40-byte stream survives Pencil bursts and pause/resume; `replay` of a
       recorded USB trace matches the live summary with `--speed 1`.
-- [ ] `input latency` stays under one frame above the floor and is lower than
+- [x] `input latency` stays under one frame above the floor and is lower than
       the Wi-Fi baseline on the same machine.
-- [ ] Unplugging the cable mid-stroke releases input and the next run
-      reconnects after the cable is restored.
-- [ ] A trace recorded over USB replays identically through the mock backend.
+- [ ] Unplugging the cable mid-stroke releases input and the same run reconnects
+      when the cable is restored.
+- [ ] Restarting the desktop `run` command while the app stays on the canvas
+      reconnects in the same app session: the HUD returns to Streaming and the
+      new desktop run prints one accepted session.
+- [x] A trace recorded over USB replays identically through the mock backend.
 
 ### Position and contact
 

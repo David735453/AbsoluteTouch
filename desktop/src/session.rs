@@ -366,6 +366,20 @@ impl<I: SessionIds> Session<I> {
         self.stream.as_ref().is_none_or(|stream| stream.released)
     }
 
+    /// Forget the stream after the transport closed.
+    ///
+    /// A cable pull or a stopped app is not a session timeout: the caller
+    /// releases the injector immediately and the next `HELLO` starts a new
+    /// session. The release is counted unless the watchdog or `BYE` already
+    /// recorded one, so a disconnect does not double-count a clean stop.
+    pub fn disconnect(&mut self) {
+        if let Some(stream) = self.stream.take()
+            && !stream.released
+        {
+            self.stats.record_release();
+        }
+    }
+
     /// Drain the effects of the packets handled so far.
     pub fn take_actions(&mut self) -> Vec<Action> {
         std::mem::take(&mut self.actions)
@@ -838,6 +852,48 @@ mod tests {
             }]
         );
         assert_eq!(session.stats().sessions, 1);
+    }
+
+    #[test]
+    fn disconnect_releases_input_and_forgets_the_session() {
+        let started = Instant::now();
+        let mut session = session(started);
+        handshake(&mut session, started);
+        session.take_actions();
+
+        session.disconnect();
+
+        assert!(!session.is_streaming());
+        assert_eq!(session.stats().releases, 1);
+        assert_eq!(session.stats().timeouts, 0);
+
+        // The next HELLO starts a new session instead of being pinned to the
+        // one that just went away.
+        session.handle(peer(), &hello(TOKEN), started + Duration::from_millis(500));
+        assert!(session.is_streaming());
+        assert_eq!(session.stats().sessions, 2);
+        assert!(matches!(
+            session.take_actions().as_slice(),
+            [Action::SendHelloAck { .. }]
+        ));
+    }
+
+    #[test]
+    fn disconnect_after_a_watchdog_release_is_not_counted_twice() {
+        let started = Instant::now();
+        let mut session = session(started);
+        handshake(&mut session, started);
+        session.take_actions();
+
+        session.tick(started + Duration::from_secs(2));
+        assert_eq!(session.stats().releases, 1);
+        assert_eq!(session.stats().watchdog_releases, 1);
+        session.take_actions();
+
+        session.disconnect();
+
+        assert_eq!(session.stats().releases, 1);
+        assert!(!session.is_streaming());
     }
 
     #[test]

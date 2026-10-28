@@ -33,9 +33,14 @@
 		/// Inbound datagrams, in arrival order.
 		public let datagrams: AsyncThrowingStream<[UInt8], Error>
 
+		/// Transport events. UDP has none: a silent desktop is handled by the
+		/// session timeout, and the connection itself has no close handshake.
+		public let events: AsyncStream<TransportEvent>
+
 		private let connection: NWConnection
 		private let queue: DispatchQueue
 		private let continuation: AsyncThrowingStream<[UInt8], Error>.Continuation
+		private let eventContinuation: AsyncStream<TransportEvent>.Continuation
 
 		/// Create a transport to one desktop endpoint.
 		///
@@ -59,6 +64,9 @@
 			let (datagrams, continuation) = AsyncThrowingStream<[UInt8], Error>.makeStream()
 			self.datagrams = datagrams
 			self.continuation = continuation
+			let (events, eventContinuation) = AsyncStream<TransportEvent>.makeStream()
+			self.events = events
+			self.eventContinuation = eventContinuation
 		}
 
 		/// Start the connection and wait until it is ready.
@@ -107,10 +115,11 @@
 			}
 		}
 
-		/// Cancel the connection and finish ``datagrams``.
+		/// Cancel the connection and finish ``datagrams`` and ``events``.
 		public func close() async {
 			connection.cancel()
 			continuation.finish()
+			eventContinuation.finish()
 		}
 
 		private func receiveNext() {

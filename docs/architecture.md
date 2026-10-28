@@ -119,6 +119,14 @@ source differs:
 4. Replies are written back on the same stream. The session names a USB peer
    `Peer::Connection(id)` instead of `Peer::Network(address)`, so the session
    state machine is unchanged; the runner maps actions to writes with a closure.
+5. Losing the stream is not the end of the run. The desktop releases input,
+   forgets the session, and asks `usbmuxd` for a new connection every 500 ms
+   until the iPad listens again; the next `HELLO` starts a fresh session, and
+   the counters add up across reconnects. On the iPad the listener stays open
+   when the desktop disconnects and the transport yields a
+   `peerDisconnected` event, so the app re-handshakes immediately instead of
+   waiting for the five-second session timeout. Both ends can therefore be
+   restarted in either order without pressing **Stop** or restarting `run`.
 
 USB needs no reader thread because there is exactly one stream. Wi-Fi keeps its
 thread because a blocking `recv_from` cannot double as the idle wait without a

@@ -137,6 +137,27 @@ public struct SessionMachine: Sendable {
 		lastHeartbeat = nil
 	}
 
+	/// Start a new handshake after the transport lost the desktop.
+	///
+	/// A USB listener outlives the desktop connection, so the next `HELLO`
+	/// should go out as soon as the desktop comes back instead of waiting for
+	/// ``SessionConfiguration/sessionTimeout`` to expire. Losing the peer while
+	/// already connecting changes nothing: those `HELLO`s are being repeated
+	/// anyway.
+	///
+	/// Queued samples belong to the session that just ended, so they are
+	/// discarded rather than sent with a session the next desktop does not know.
+	///
+	/// - Parameter now: Monotonic time supplied by the caller.
+	public mutating func peerLost(now: Duration) {
+		guard origin != nil, case .streaming = state else {
+			return
+		}
+		outbound.removeAll(keepingCapacity: true)
+		beginHandshake()
+		enqueueHello(now: now)
+	}
+
 	/// Record a terminal transport failure.
 	///
 	/// - Parameter failure: The failure to report.

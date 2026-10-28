@@ -10,10 +10,13 @@
 
 #![cfg(unix)]
 
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Child, Command, Output, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use plist::{Dictionary, Value};
 
@@ -34,6 +37,23 @@ fn read_request(stream: &mut impl Read) -> (u32, Dictionary) {
         tag,
         plist.as_dictionary().expect("request dictionary").clone(),
     )
+}
+
+/// Read one request, returning the I/O error when the client goes away.
+fn try_read_request(stream: &mut impl Read) -> std::io::Result<(u32, Dictionary)> {
+    let mut header = [0_u8; 16];
+    stream.read_exact(&mut header)?;
+    let length = u32::from_le_bytes(header[0..4].try_into().expect("length"));
+    let tag = u32::from_le_bytes(header[12..16].try_into().expect("tag"));
+
+    let mut payload = vec![0_u8; length.saturating_sub(16) as usize];
+    stream.read_exact(&mut payload)?;
+    let plist = Value::from_reader_xml(payload.as_slice())
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+    Ok((
+        tag,
+        plist.as_dictionary().expect("request dictionary").clone(),
+    ))
 }
 
 /// Write one framed message.
@@ -143,70 +163,181 @@ fn devices_lists_the_attached_ipad() {
     assert!(stdout.contains("USB") || stdout.contains("usb"), "{stdout}");
 }
 
-#[test]
-fn run_without_a_device_says_how_to_list_one() {
-    let (_directory, path, listener) = fake_daemon();
-    let thread = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().expect("accept");
-        let (tag, _) = read_request(&mut stream);
-        write_plist(&mut stream, tag, &device_list(&[]));
+/// Spawn the binary and collect its stderr in the background.
+fn spawn_capturing(mut command: Command) -> (Child, Arc<Mutex<String>>) {
+    command.stdout(Stdio::null()).stderr(Stdio::piped());
+    let mut child = command.spawn().expect("spawn binary");
+    let stderr = child.stderr.take().expect("stderr pipe");
+    let buffer = Arc::new(Mutex::new(String::new()));
+    let sink = Arc::clone(&buffer);
+    std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            let mut sink = sink.lock().expect("buffer lock");
+            sink.push_str(&line);
+            sink.push('\n');
+        }
     });
+    (child, buffer)
+}
 
-    let directory = tempfile::tempdir().expect("tempdir");
-    let output = run(binary(&path)
-        .arg("--config")
-        .arg(config(directory.path()))
-        .arg("run"));
-    thread.join().expect("daemon thread");
+/// Wait until the captured stderr contains `needle`.
+fn wait_for(buffer: &Arc<Mutex<String>>, needle: &str, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if buffer.lock().expect("buffer lock").contains(needle) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    false
+}
 
-    assert!(!output.status.success(), "run should fail");
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("no USB device matches"), "{stderr}");
-    assert!(stderr.contains("absolutetouch devices"), "{stderr}");
+/// Kill a spawned run and return everything it printed.
+fn stop(mut child: Child, buffer: &Arc<Mutex<String>>) -> String {
+    child.kill().expect("kill run");
+    child.wait().expect("wait for run");
+    buffer.lock().expect("buffer lock").clone()
 }
 
 #[test]
-fn run_reports_a_refused_port_with_the_app_hint() {
+fn run_without_a_device_keeps_waiting_and_says_how_to_list_one() {
     let (_directory, path, listener) = fake_daemon();
-    let thread = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().expect("accept");
-
-        let (tag, request) = read_request(&mut stream);
-        assert_eq!(
-            request.get("MessageType").and_then(Value::as_string),
-            Some("ListDevices")
-        );
-        write_plist(
-            &mut stream,
-            tag,
-            &device_list(&[(3, "00008110-001A2C3D4E5F")]),
-        );
-
-        let (tag, request) = read_request(&mut stream);
-        assert_eq!(
-            request.get("MessageType").and_then(Value::as_string),
-            Some("Connect")
-        );
-        assert_eq!(
-            request
-                .get("PortNumber")
-                .and_then(Value::as_unsigned_integer),
-            Some(u64::from(37_690_u16.to_be()))
-        );
-        write_result(&mut stream, tag, 3);
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            while let Ok((tag, _)) = try_read_request(&mut stream) {
+                write_plist(&mut stream, tag, &device_list(&[]));
+            }
+        }
     });
 
     let directory = tempfile::tempdir().expect("tempdir");
-    let output = run(binary(&path)
+    let mut command = binary(&path);
+    command
         .arg("--config")
         .arg(config(directory.path()))
-        .arg("run"));
-    thread.join().expect("daemon thread");
+        .arg("run");
+    let (mut child, buffer) = spawn_capturing(command);
 
-    assert!(!output.status.success(), "run should fail");
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        wait_for(&buffer, "absolutetouch devices", Duration::from_secs(5)),
+        "{}",
+        buffer.lock().expect("buffer lock")
+    );
+    std::thread::sleep(Duration::from_millis(700));
+    assert!(
+        child.try_wait().expect("try_wait").is_none(),
+        "run should keep waiting for a device instead of exiting"
+    );
+
+    let stderr = stop(child, &buffer);
+    assert!(stderr.contains("no USB device matches"), "{stderr}");
+}
+
+#[test]
+fn run_keeps_retrying_when_the_app_is_not_listening() {
+    let (_directory, path, listener) = fake_daemon();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            while let Ok((tag, request)) = try_read_request(&mut stream) {
+                match request.get("MessageType").and_then(Value::as_string) {
+                    Some("ListDevices") => write_plist(
+                        &mut stream,
+                        tag,
+                        &device_list(&[(3, "00008110-001A2C3D4E5F")]),
+                    ),
+                    Some("Connect") => write_result(&mut stream, tag, 3),
+                    _ => {}
+                }
+            }
+        }
+    });
+
+    let directory = tempfile::tempdir().expect("tempdir");
+    let mut command = binary(&path);
+    command
+        .arg("--config")
+        .arg(config(directory.path()))
+        .arg("run");
+    let (mut child, buffer) = spawn_capturing(command);
+
+    assert!(
+        wait_for(&buffer, "open AbsoluteTouch", Duration::from_secs(5)),
+        "{}",
+        buffer.lock().expect("buffer lock")
+    );
+    std::thread::sleep(Duration::from_millis(700));
+    assert!(
+        child.try_wait().expect("try_wait").is_none(),
+        "run should keep retrying instead of exiting"
+    );
+
+    let stderr = stop(child, &buffer);
     assert!(stderr.contains("37690"), "{stderr}");
-    assert!(stderr.contains("open AbsoluteTouch"), "{stderr}");
+    assert!(stderr.contains("retrying every"), "{stderr}");
+}
+
+#[test]
+fn run_reconnects_after_the_stream_closes() {
+    let (_directory, path, listener) = fake_daemon();
+    let connects = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&connects);
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            while let Ok((tag, request)) = try_read_request(&mut stream) {
+                match request.get("MessageType").and_then(Value::as_string) {
+                    Some("ListDevices") => write_plist(
+                        &mut stream,
+                        tag,
+                        &device_list(&[(3, "00008110-001A2C3D4E5F")]),
+                    ),
+                    Some("Connect") => {
+                        counter.fetch_add(1, Ordering::SeqCst);
+                        // Accept the connection and close it again, which is
+                        // what a stopped app looks like to the desktop.
+                        write_result(&mut stream, tag, 0);
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    });
+
+    let directory = tempfile::tempdir().expect("tempdir");
+    let mut command = binary(&path);
+    command
+        .arg("--config")
+        .arg(config(directory.path()))
+        .arg("run");
+    let (child, buffer) = spawn_capturing(command);
+
+    assert!(
+        wait_for(
+            &buffer,
+            "usb connection closed by the iPad",
+            Duration::from_secs(5)
+        ),
+        "{}",
+        buffer.lock().expect("buffer lock")
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while connects.load(Ordering::SeqCst) < 2 && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        connects.load(Ordering::SeqCst) >= 2,
+        "the desktop should open a new connection"
+    );
+
+    let stderr = stop(child, &buffer);
+    assert!(
+        stderr.contains("connecting to 00008110-001A2C3D4E5F over usb"),
+        "{stderr}"
+    );
 }
 
 #[test]

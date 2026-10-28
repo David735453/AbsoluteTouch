@@ -333,14 +333,25 @@ Then:
    `session N accepted from usb connection M`. From here the session behaves
    exactly like Wi-Fi: same handshake, heartbeat, samples, watchdog, and
    `input latency` summary.
-5. Stopping the app or unplugging the cable ends the desktop session; start it
-   again to reconnect.
+5. Stopping the app or unplugging the cable releases input and closes the
+   stream; the desktop keeps retrying, so restarting the app or reconnecting
+   the cable resumes the session without touching the command. Press `Ctrl+C`
+   to stop it.
 
-Start the iPad app before the desktop command. `usbmuxd` refuses a connection to
-a port no app is listening on, which is reported as
-`the iPad refused the connection on TCP port 37690`. The desktop does not retry:
-open the app, then run the command again. Firmware and Mac/Windows setups also
-work when `usbmuxd` is reachable, but Linux is the reference platform.
+The app and the desktop can be started in either order. While nothing is
+listening, `usbmuxd` reports
+`the iPad refused the connection on TCP port 37690`; the desktop prints that
+once, retries twice a second, and connects as soon as the app starts listening.
+The same retry covers a pulled cable, a restarted app, and a restarted
+`usbmuxd`, and the counters in the final summary add up across reconnects.
+
+Both ends also recover in the other direction. The USB listener stays open when
+the desktop goes away, so stopping the desktop command leaves the app on
+"Connecting" and the next `run` is accepted as soon as it connects. Over Wi-Fi
+the app notices a restarted desktop through the five-second session timeout and
+starts a new handshake. Neither case needs the app's **Stop** button.
+Firmware and Mac/Windows setups also work when `usbmuxd` is reachable, but Linux
+is the reference platform.
 
 The app binds its USB listener to `127.0.0.1` inside the iPad, because that is
 the only address `usbmuxd` connects to. Binding the wildcard address instead

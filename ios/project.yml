@@ -21,6 +21,7 @@ targets:
       - path: App
         excludes:
           - Info.plist
+          - Info-xtool.plist
     dependencies:
       - package: AbsoluteTouchCore
         product: AbsoluteTouchCore

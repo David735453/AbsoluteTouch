@@ -22,6 +22,7 @@ public actor SessionController {
 	private var flushing = false
 	private var lastPublishedState: SessionState?
 	private var receiveTask: Task<Void, Never>?
+	private var eventTask: Task<Void, Never>?
 	private var tickTask: Task<Void, Never>?
 	private var sampleTask: Task<Void, Never>?
 
@@ -125,6 +126,16 @@ public actor SessionController {
 			}
 		}
 
+		let events = transport.events
+		eventTask = Task { [weak self] in
+			for await event in events {
+				guard let self else {
+					return
+				}
+				await self.handle(event)
+			}
+		}
+
 		tickTask = Task { [weak self] in
 			while !Task.isCancelled {
 				do {
@@ -169,6 +180,18 @@ public actor SessionController {
 		machine.tick(now: elapsed())
 		publish()
 		await flush()
+	}
+
+	private func handle(_ event: TransportEvent) async {
+		guard !finished else {
+			return
+		}
+		switch event {
+		case .peerDisconnected:
+			machine.peerLost(now: elapsed())
+			publish()
+			await flush()
+		}
 	}
 
 	private func sendQueuedSamples() async {
@@ -263,9 +286,11 @@ public actor SessionController {
 		}
 		finished = true
 		receiveTask?.cancel()
+		eventTask?.cancel()
 		tickTask?.cancel()
 		sampleTask?.cancel()
 		receiveTask = nil
+		eventTask = nil
 		tickTask = nil
 		sampleTask = nil
 		mailbox.finish()

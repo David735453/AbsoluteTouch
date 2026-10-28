@@ -9,6 +9,8 @@
 /ios/.build/
 /ios/DerivedData/
 /ios/build/
+/ios/xtool/
+/ios/.bsp/
 /ios/*.xcodeproj/
 /ios/*.xcworkspace/
 /ios/.bundle/

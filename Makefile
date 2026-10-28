@@ -68,10 +68,10 @@ fmt-check:
 	cd desktop && cargo fmt --all -- --check
 
 fmt-swift:
-	swift format format --in-place --recursive ios/AbsoluteTouchCore ios/App
+	swift format format --in-place --recursive ios/AbsoluteTouchCore ios/App ios/Package.swift
 
 lint-swift:
-	swift format lint --strict --recursive ios/AbsoluteTouchCore ios/App
+	swift format lint --strict --recursive ios/AbsoluteTouchCore ios/App ios/Package.swift
 
 fmt-md:
 	@tools/prettier.sh --write '**/*.md'
