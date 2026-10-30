@@ -12,10 +12,25 @@ protocol CanvasViewDelegate: AnyObject {
 ///
 /// UIKit is required here because SwiftUI gestures do not expose coalesced
 /// touches, stylus altitude and azimuth, or hover poses. The view normalizes
-/// positions against its current bounds, so rotations and multitasking resizes
-/// do not change the active area.
+/// positions against its active area, so a small area means the whole desktop
+/// is reachable without crossing the screen, and rotations or multitasking
+/// resizes do not change the chosen shape.
 final class CanvasView: UIView {
 	weak var delegate: CanvasViewDelegate?
+
+	/// Part of the bounds that accepts input, as fractions of the bounds.
+	///
+	/// ``StreamingView`` resolves the user's settings against the canvas
+	/// aspect before assigning it, so this rectangle already has the requested
+	/// ratio.
+	var activeArea = ActiveArea.full {
+		didSet {
+			guard activeArea != oldValue else {
+				return
+			}
+			setNeedsDisplay()
+		}
+	}
 
 	private var activeTouch: UITouch?
 	private var lastLocation: CGPoint?
@@ -53,10 +68,24 @@ final class CanvasView: UIView {
 		}
 	}
 
+	override func draw(_ rect: CGRect) {
+		CanvasAreaOverlay(bounds: bounds, area: areaRect).draw()
+		CanvasIndicator(
+			location: lastLocation,
+			isContact: lastContact,
+			isHover: hoverActive
+		).draw()
+	}
+}
+
+// MARK: - Touch handling
+
+extension CanvasView {
 	override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-		if let pencil = touches.first(where: { $0.type == .pencil }) {
-			adopt(pencil)
-			return
+		for touch in touches where touch.type == .pencil {
+			if adopt(touch) {
+				return
+			}
 		}
 
 		guard activeTouch == nil else {
@@ -65,7 +94,7 @@ final class CanvasView: UIView {
 		guard let finger = touches.first(where: { $0.type == .direct }) else {
 			return
 		}
-		adopt(finger)
+		_ = adopt(finger)
 	}
 
 	override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -104,15 +133,11 @@ final class CanvasView: UIView {
 		)
 		finishTouch()
 	}
+}
 
-	override func draw(_ rect: CGRect) {
-		CanvasIndicator(
-			location: lastLocation,
-			isContact: lastContact,
-			isHover: hoverActive
-		).draw()
-	}
+// MARK: - Hover and display link
 
+extension CanvasView {
 	@objc private func handleHover(_ recognizer: UIHoverGestureRecognizer) {
 		switch recognizer.state {
 		case .began, .changed:
@@ -120,6 +145,10 @@ final class CanvasView: UIView {
 				return
 			}
 			let location = recognizer.location(in: self)
+			guard isInside(location) else {
+				leaveHover(at: location)
+				return
+			}
 			guard
 				let sample = makeSample(
 					location: location,
@@ -138,12 +167,7 @@ final class CanvasView: UIView {
 			delegate?.canvasView(self, didSample: sample)
 
 		case .ended, .cancelled:
-			guard hoverActive else {
-				return
-			}
-			let location = lastLocation ?? recognizer.location(in: self)
-			hoverActive = false
-			emitOutOfRange(at: location, isFinger: false)
+			leaveHover(at: lastLocation ?? recognizer.location(in: self))
 
 		default:
 			break
@@ -162,7 +186,39 @@ final class CanvasView: UIView {
 		lastInputTime = CACurrentMediaTime()
 	}
 
-	private func adopt(_ touch: UITouch) {
+	private func startDisplayLink() {
+		guard displayLink == nil else {
+			return
+		}
+		let link = CADisplayLink(
+			target: self,
+			selector: #selector(displayLinkFired(_:))
+		)
+		link.add(to: .main, forMode: .common)
+		displayLink = link
+	}
+
+	private func stopDisplayLink() {
+		displayLink?.invalidate()
+		displayLink = nil
+	}
+}
+
+// MARK: - Sampling
+
+extension CanvasView {
+	/// Adopt a touch that starts inside the active area.
+	///
+	/// A touch that starts outside is ignored entirely: the desktop never
+	/// sees a contact that was aimed at a dimmed part of the screen.
+	///
+	/// - Parameter touch: The new touch.
+	/// - Returns: `true` when the touch became the active one.
+	@discardableResult
+	private func adopt(_ touch: UITouch) -> Bool {
+		guard isInside(touch.preciseLocation(in: self)) else {
+			return false
+		}
 		if let activeTouch, activeTouch !== touch {
 			emitOutOfRange(
 				at: activeTouch.preciseLocation(in: self),
@@ -174,6 +230,7 @@ final class CanvasView: UIView {
 		lastInputTime = CACurrentMediaTime()
 		emitTouch(touch)
 		startDisplayLink()
+		return true
 	}
 
 	private func finishTouch() {
@@ -183,11 +240,32 @@ final class CanvasView: UIView {
 		stopDisplayLink()
 	}
 
+	/// End hover, sending one out-of-range sample if the Pencil was inside.
+	///
+	/// - Parameter location: Where the Pencil left, in view points.
+	private func leaveHover(at location: CGPoint) {
+		guard hoverActive else {
+			return
+		}
+		hoverActive = false
+		emitOutOfRange(at: location, isFinger: false)
+	}
+
 	private func emitTouch(_ touch: UITouch) {
 		let isPencil = touch.type == .pencil
+		let location = touch.preciseLocation(in: self)
+		guard isInside(location) else {
+			// Leaving the area lifts the contact but keeps the touch, so
+			// coming back in starts a new stroke instead of being ignored
+			// until the Pencil is lifted.
+			if lastContact {
+				emitOutOfRange(at: location, isFinger: touch.type == .direct)
+			}
+			return
+		}
 		guard
 			let sample = makeSample(
-				location: touch.preciseLocation(in: self),
+				location: location,
 				phase: .contact,
 				altitudeRadians: isPencil ? Double(touch.altitudeAngle) : nil,
 				azimuthRadians: isPencil
@@ -200,7 +278,7 @@ final class CanvasView: UIView {
 		}
 		lastContact = true
 		hoverActive = false
-		lastLocation = touch.preciseLocation(in: self)
+		lastLocation = location
 		setNeedsDisplay()
 		delegate?.canvasView(self, didSample: sample)
 	}
@@ -231,18 +309,19 @@ final class CanvasView: UIView {
 		azimuthRadians: Double?,
 		isFinger: Bool
 	) -> PointerSample? {
-		guard bounds.width > 0, bounds.height > 0 else {
+		let area = areaRect
+		guard area.width > 0, area.height > 0 else {
 			return nil
 		}
 
 		return PointerSample(
 			x: PointerNormalization.axis(
-				Double(location.x),
-				extent: Double(bounds.width)
+				Double(location.x - area.minX),
+				extent: Double(area.width)
 			),
 			y: PointerNormalization.axis(
-				Double(location.y),
-				extent: Double(bounds.height)
+				Double(location.y - area.minY),
+				extent: Double(area.height)
 			),
 			phase: phase,
 			pressure: 0,
@@ -256,103 +335,21 @@ final class CanvasView: UIView {
 		)
 	}
 
-	private func startDisplayLink() {
-		guard displayLink == nil else {
-			return
-		}
-		let link = CADisplayLink(
-			target: self,
-			selector: #selector(displayLinkFired(_:))
+	/// The active area in view points.
+	private var areaRect: CGRect {
+		CGRect(
+			x: bounds.width * activeArea.x,
+			y: bounds.height * activeArea.y,
+			width: bounds.width * activeArea.width,
+			height: bounds.height * activeArea.height
 		)
-		link.add(to: .main, forMode: .common)
-		displayLink = link
 	}
 
-	private func stopDisplayLink() {
-		displayLink?.invalidate()
-		displayLink = nil
-	}
-}
-
-/// Draws the small ring that shows where the Pencil is.
-///
-/// Drawing lives outside the canvas class so touch handling and presentation
-/// stay separately readable.
-private struct CanvasIndicator {
-	let location: CGPoint?
-	let isContact: Bool
-	let isHover: Bool
-
-	func draw() {
-		guard let location else {
-			return
-		}
-
-		if isContact {
-			UIColor.white.withAlphaComponent(0.7).setStroke()
-			let ring = UIBezierPath(
-				ovalIn: CGRect(
-					x: location.x - 9,
-					y: location.y - 9,
-					width: 18,
-					height: 18
-				)
-			)
-			ring.lineWidth = 1.5
-			ring.stroke()
-
-			UIColor.white.setFill()
-			let dot = UIBezierPath(
-				ovalIn: CGRect(
-					x: location.x - 3,
-					y: location.y - 3,
-					width: 6,
-					height: 6
-				)
-			)
-			dot.fill()
-		} else if isHover {
-			UIColor.white.withAlphaComponent(0.5).setStroke()
-			let ring = UIBezierPath(
-				ovalIn: CGRect(
-					x: location.x - 10,
-					y: location.y - 10,
-					width: 20,
-					height: 20
-				)
-			)
-			ring.lineWidth = 1.5
-			ring.stroke()
-		}
-	}
-}
-
-/// SwiftUI wrapper around ``CanvasView``.
-struct CanvasViewRepresentable: UIViewRepresentable {
-	let onSample: @MainActor (PointerSample) -> Void
-
-	func makeUIView(context: Context) -> CanvasView {
-		let view = CanvasView(frame: .zero)
-		view.delegate = context.coordinator
-		return view
-	}
-
-	func updateUIView(_ uiView: CanvasView, context: Context) {}
-
-	func makeCoordinator() -> Coordinator {
-		Coordinator(onSample: onSample)
-	}
-
-	@MainActor
-	final class Coordinator: NSObject, CanvasViewDelegate {
-		private let onSample: @MainActor (PointerSample) -> Void
-
-		init(onSample: @escaping @MainActor (PointerSample) -> Void) {
-			self.onSample = onSample
-		}
-
-		func canvasView(_ view: CanvasView, didSample sample: PointerSample) {
-			onSample(sample)
-		}
+	/// Whether a view-space point is inside the active area.
+	///
+	/// - Parameter location: A point in view coordinates.
+	/// - Returns: `true` when the point accepts input.
+	private func isInside(_ location: CGPoint) -> Bool {
+		areaRect.contains(location)
 	}
 }

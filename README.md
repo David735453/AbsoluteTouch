@@ -6,22 +6,23 @@ state over Wi-Fi UDP or USB, then injects it as an absolute device.
 
 The project is in early development. **M4** adds USB transport through
 `usbmuxd` and replaces the 32-hex-character pairing token with a six-character
-pairing code. The Wi-Fi path (M3) was validated on a real iPad Air (M4) and
-Apple Pencil (USB-C); USB is implemented on both sides but has not been run on
-hardware yet. The Linux desktop path (M2) is the validated reference.
+pairing code. Wi-Fi (M3) and USB (M4) were both validated on a real iPad Air
+(M4) with an Apple Pencil (USB-C); USB sessions reconnect on both ends without
+restarting the app. The Linux desktop path (M2) is the validated reference.
 
 ## Status
 
-| Area                      | State                                              |
-| ------------------------- | -------------------------------------------------- |
-| Protocol + golden vectors | Implemented and tested                             |
-| Desktop Wi-Fi session     | Implemented and tested (M1)                        |
-| Swift core package        | Implemented and tested                             |
-| Linux `uinput` tablet     | Implemented and tested (M2)                        |
-| iPad app + Wi-Fi sender   | Validated on iPad Air (M4) + Pencil USB-C (M3)     |
-| USB via `usbmuxd`         | Implemented and unit-tested; hardware pending (M4) |
-| Windows / macOS injection | Planned (M5/M6)                                    |
-| TestFlight / releases     | TestFlight upload validated; releases manual       |
+| Area                      | State                                        |
+| ------------------------- | -------------------------------------------- |
+| Protocol + golden vectors | Implemented and tested                       |
+| Desktop Wi-Fi session     | Implemented and tested (M1)                  |
+| Swift core package        | Implemented and tested                       |
+| Linux `uinput` tablet     | Implemented and tested (M2)                  |
+| iPad app + Wi-Fi sender   | Validated on iPad Air M4 + Pencil USB-C (M3) |
+| USB via `usbmuxd`         | Validated on the same hardware (M4)          |
+| Drawing area              | Configurable, aspect-locked (M4)             |
+| Localization              | English table with tests; translations ready |
+| Windows / macOS injection | Planned (M5/M6)                              |
 
 ## Hardware note
 

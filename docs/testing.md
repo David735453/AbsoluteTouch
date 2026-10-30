@@ -28,6 +28,8 @@ compile.
 | Swift controller tests | Fake datagram transport, state stream, failure, `BYE`                                         | `ios/AbsoluteTouchCore/Tests/AbsoluteTouchCoreTests/SessionControllerTests.swift` |
 | Swift mailbox tests    | Bounded buffer, drop-oldest, one wakeup per burst, coalescing keeps state changes             | `ios/AbsoluteTouchCore/Tests/AbsoluteTouchCoreTests/SampleMailboxTests.swift`     |
 | Swift pointer tests    | Coordinate/angle normalization, phase flags, token parsing                                    | `PointerSampleTests.swift`, `PairingTokenTests.swift`                             |
+| Swift area tests       | Clamping, ratio derivation, move/resize, localized summary                                    | `ActiveAreaTests.swift`                                                           |
+| Swift string tests     | Every key in every language, placeholder formatting, locale decimals, tag fallback            | `LocalizationTests.swift`                                                         |
 | Build number tests     | Higher of the run number and the newest TestFlight build; fallback when unreadable            | `ios/fastlane/build_number_test.rb`                                               |
 | Manual hardware tests  | Real Pencil, real backend, real OS                                                            | Checklist below                                                                   |
 
@@ -529,7 +531,7 @@ backend, transport, iPad model, and Pencil model to the result.
       use) instead of sitting on "Waiting for USB" forever.
 - [ ] The iPad screen stays awake while a session is open, and auto-lock returns
       to normal after stopping or after a failure.
-- [ ] With the app streaming and the code matching, the desktop prints
+- [x] With the app streaming and the code matching, the desktop prints
       `connecting to SERIAL over usb` and accepts the session.
 - [x] The 40-byte stream survives Pencil bursts and pause/resume; `replay` of a
       recorded USB trace matches the live summary with `--speed 1`.
@@ -537,10 +539,29 @@ backend, transport, iPad model, and Pencil model to the result.
       the Wi-Fi baseline on the same machine.
 - [ ] Unplugging the cable mid-stroke releases input and the same run reconnects
       when the cable is restored.
-- [ ] Restarting the desktop `run` command while the app stays on the canvas
+- [x] Restarting the desktop `run` command while the app stays on the canvas
       reconnects in the same app session: the HUD returns to Streaming and the
       new desktop run prints one accepted session.
 - [x] A trace recorded over USB replays identically through the mock backend.
+
+### Drawing area
+
+- [ ] The drawing area page opens only from the home screen, not during a
+      session.
+- [ ] The aspect lock is on at 16:9 on a fresh install, and the rectangle keeps
+      that shape when the size or ratio changes.
+- [ ] The rectangle keeps its ratio and position after rotation and Split View.
+- [ ] A contact that starts outside the rectangle is ignored; a stroke that
+      leaves it lifts the desktop cursor and resumes when it comes back in.
+- [ ] The desktop cursor reaches all four corners while drawing at the corners
+      of a small area.
+- [ ] **Reset to full screen** fills the canvas and releases the lock.
+- [ ] The configured area survives stopping the session and relaunching the app.
+
+### Language
+
+- [ ] The app follows the device language, and a language without a table falls
+      back to English.
 
 ### Position and contact
 
@@ -580,11 +601,14 @@ backend, transport, iPad model, and Pencil model to the result.
 
 - **Linux** is the reference platform. It is supported after the M2 manual
   checklist passes on real hardware.
-- **The iPad app** passed the M3 Wi-Fi checklist on the reference iPad Air (M4)
-  and Pencil (USB-C); it is still beta overall because USB has no hardware run
-  yet and rotation, multitasking, and other iPad sizes have not been exercised.
-- **USB** is beta until the M4 checklist above passes on real hardware. Unit
-  tests against a fake daemon prove the framing, not the cable.
+- **The iPad app** passed the M3 Wi-Fi checklist and the M4 USB checklist on the
+  reference iPad Air (M4) and Pencil (USB-C); it is still beta overall because
+  rotation, multitasking, and other iPad sizes have not been exercised.
+- **USB** was validated on the reference hardware: the stream survives Pencil
+  bursts, sessions reconnect on both ends, and a recorded trace replays
+  identically. The USB items still unchecked above (two attached iPads, a
+  cable pull mid-stroke, the listener-bind failure card, the idle timer) are the
+  remaining hardware checks.
 - **Windows** and **macOS** are beta until their manual checklists pass on real
   hardware. A green compile job is not support.
 - **TestFlight** builds are beta by definition; they do not imply App Store

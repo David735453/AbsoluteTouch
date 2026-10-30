@@ -1,23 +1,25 @@
 import AbsoluteTouchCore
 import SwiftUI
-import UIKit
 
 /// Pairing form for the iPad sender.
 ///
-/// The form persists its fields in `UserDefaults`, so the pairing token only
-/// needs to be entered once. Starting a session swaps the whole screen for
-/// ``StreamingView``; stopping returns here.
+/// Starting a session swaps the whole screen for ``StreamingView``; stopping
+/// returns here. The drawing area is configured on its own page from this
+/// screen, never while a session is running.
 struct ContentView: View {
 	@State private var viewModel = StreamingViewModel()
 	@State private var session: ConnectionSettings?
 	@Environment(\.scenePhase) private var scenePhase
 
-	@AppStorage("absoluteTouch.host") private var host = ""
 	@AppStorage("absoluteTouch.transport") private var transportRaw = TransportChoice.wifi.rawValue
-	@AppStorage("absoluteTouch.port") private var portText = String(
-		ConnectionSettings.defaultPort
-	)
-	@AppStorage("absoluteTouch.token") private var tokenText = ""
+
+	@AppStorage(ActiveAreaStorage.x) private var areaX = 0.0
+	@AppStorage(ActiveAreaStorage.y) private var areaY = 0.0
+	@AppStorage(ActiveAreaStorage.width) private var areaWidth = 1.0
+	@AppStorage(ActiveAreaStorage.height) private var areaHeight = 1.0
+	@AppStorage(ActiveAreaStorage.isLocked) private var areaLocked = true
+	@AppStorage(ActiveAreaStorage.aspectWidth) private var aspectWidth = 16
+	@AppStorage(ActiveAreaStorage.aspectHeight) private var aspectHeight = 9
 
 	private var transport: TransportChoice {
 		TransportChoice(rawValue: transportRaw) ?? .wifi
@@ -29,15 +31,11 @@ struct ContentView: View {
 				StreamingView(
 					viewModel: viewModel,
 					settings: session,
+					areaSettings: areaSettings,
 					onStop: stopSession
 				)
 			} else {
 				setup
-			}
-		}
-		.onAppear {
-			if tokenText.isEmpty {
-				tokenText = PairingCode.random()
 			}
 		}
 		.onChange(of: scenePhase) { _, phase in
@@ -52,17 +50,24 @@ struct ContentView: View {
 
 	private var setup: some View {
 		NavigationStack {
-			ScrollView {
-				VStack(alignment: .leading, spacing: 20) {
-					header
-					pairingCard
-					HowToCard(transport: transport)
-					ProtocolCard()
-					SetupFooter()
+			GeometryReader { proxy in
+				ScrollView {
+					VStack(alignment: .leading, spacing: 20) {
+						header
+						PairingCard(transport: transportBinding, onStart: startSession)
+						DrawingAreaCard(
+							settings: areaSettings,
+							binding: areaBinding,
+							canvasAspect: aspect(of: proxy.size)
+						)
+						HowToCard(transport: transport)
+						ProtocolCard()
+						SetupFooter()
+					}
+					.padding(24)
+					.frame(maxWidth: 680, alignment: .leading)
+					.frame(maxWidth: .infinity)
 				}
-				.padding(24)
-				.frame(maxWidth: 680, alignment: .leading)
-				.frame(maxWidth: .infinity)
 			}
 			.background(Color(uiColor: .systemGroupedBackground))
 			.navigationTitle("AbsoluteTouch")
@@ -87,168 +92,46 @@ struct ContentView: View {
 		}
 	}
 
-	private var pairingCard: some View {
-		Card {
-			Text("Desktop")
-				.font(.headline)
-
-			Picker(
-				"Transport",
-				selection: Binding(
-					get: { transport },
-					set: { choice in
-						transportRaw = choice.rawValue
-						// Switching transports also switches ports; keeping the
-						// UDP port on USB would ask usbmuxd for the wrong one.
-						portText = String(choice.defaultPort)
-					}
-				)
-			) {
-				ForEach(TransportChoice.allCases, id: \.rawValue) { choice in
-					Text(choice.title).tag(choice)
-				}
-			}
-			.pickerStyle(.segmented)
-
-			if transport == .wifi {
-				field("Address") {
-					TextField("192.0.2.10", text: $host)
-						.textFieldStyle(.roundedBorder)
-						.keyboardType(.URL)
-						.textInputAutocapitalization(.never)
-						.autocorrectionDisabled()
-						.submitLabel(.next)
-				}
-			}
-
-			field(transport == .wifi ? "UDP port" : "TCP port") {
-				TextField(String(transport.defaultPort), text: $portText)
-					.textFieldStyle(.roundedBorder)
-					.keyboardType(.numberPad)
-			}
-
-			field("Pairing code") {
-				HStack(spacing: 8) {
-					TextField("K7M2QX", text: $tokenText)
-						.textFieldStyle(.roundedBorder)
-						.font(.system(.title3, design: .monospaced))
-						.textInputAutocapitalization(.characters)
-						.autocorrectionDisabled()
-
-					Button {
-						tokenText = PairingCode.random()
-					} label: {
-						Image(systemName: "dice")
-					}
-					.buttonStyle(.bordered)
-					.accessibilityLabel("Generate a new pairing code")
-
-					Button {
-						if let pasted = UIPasteboard.general.string {
-							tokenText = pasted
-						}
-					} label: {
-						Image(systemName: "doc.on.clipboard")
-					}
-					.buttonStyle(.bordered)
-					.accessibilityLabel("Paste a pairing code")
-
-					Button {
-						UIPasteboard.general.string = tokenText
-					} label: {
-						Image(systemName: "doc.on.doc")
-					}
-					.buttonStyle(.bordered)
-					.accessibilityLabel("Copy the pairing code")
-				}
-			}
-
-			if let validationMessage {
-				Label(validationMessage, systemImage: "exclamationmark.triangle.fill")
-					.font(.footnote)
-					.foregroundStyle(.orange)
-					.fixedSize(horizontal: false, vertical: true)
-			}
-
-			Button {
-				startSession()
-			} label: {
-				Label("Start streaming", systemImage: "play.fill")
-					.frame(maxWidth: .infinity)
-			}
-			.buttonStyle(.borderedProminent)
-			.controlSize(.large)
-			.disabled(connectionSettings == nil)
-		}
+	private var transportBinding: Binding<TransportChoice> {
+		Binding(
+			get: { transport },
+			set: { transportRaw = $0.rawValue }
+		)
 	}
 
-	private func field<Content: View>(
-		_ label: String,
-		@ViewBuilder content: () -> Content
-	) -> some View {
-		VStack(alignment: .leading, spacing: 6) {
-			Text(label)
-				.font(.caption)
-				.foregroundStyle(.secondary)
-			content()
-		}
+	/// The saved drawing area.
+	private var areaSettings: ActiveAreaSettings {
+		ActiveAreaSettings(
+			area: ActiveArea(x: areaX, y: areaY, width: areaWidth, height: areaHeight),
+			isAspectLocked: areaLocked,
+			aspectRatio: AspectRatio(width: aspectWidth, height: aspectHeight)
+		)
 	}
 
-	private var connectionSettings: ConnectionSettings? {
-		let port = portText.trimmingCharacters(in: .whitespacesAndNewlines)
-		guard let portNumber = UInt16(port), portNumber != 0 else {
-			return nil
-		}
-		guard let token = parsedToken else {
-			return nil
-		}
-
-		if transport == .wifi {
-			let address = host.trimmingCharacters(in: .whitespacesAndNewlines)
-			guard !address.isEmpty else {
-				return nil
+	/// Two-way projection of the stored area, used by the editor.
+	private var areaBinding: Binding<ActiveAreaSettings> {
+		Binding(
+			get: { areaSettings },
+			set: { settings in
+				areaX = settings.area.x
+				areaY = settings.area.y
+				areaWidth = settings.area.width
+				areaHeight = settings.area.height
+				areaLocked = settings.isAspectLocked
+				aspectWidth = settings.aspectRatio.width
+				aspectHeight = settings.aspectRatio.height
 			}
-			return ConnectionSettings(
-				transport: .wifi,
-				host: address,
-				port: portNumber,
-				token: token
-			)
-		}
-		return ConnectionSettings(transport: .usb, host: "", port: portNumber, token: token)
+		)
 	}
 
-	/// The typed secret: a 6-character code, or 32 hex characters from an older
-	/// configuration.
-	private var parsedToken: PairingToken? {
-		let trimmed = tokenText.trimmingCharacters(in: .whitespacesAndNewlines)
-		if let hex = PairingToken(hex: trimmed) {
-			return hex
+	private func aspect(of size: CGSize) -> Double {
+		guard size.width > 0, size.height > 0 else {
+			return 4.0 / 3.0
 		}
-		return try? PairingToken(code: trimmed)
+		return Double(size.width / size.height)
 	}
 
-	private var validationMessage: String? {
-		if transport == .wifi {
-			let address = host.trimmingCharacters(in: .whitespacesAndNewlines)
-			if address.isEmpty {
-				return "Enter the desktop address printed by the desktop CLI."
-			}
-		}
-		let port = portText.trimmingCharacters(in: .whitespacesAndNewlines)
-		if UInt16(port) == nil || UInt16(port) == 0 {
-			return "Enter a port between 1 and 65535."
-		}
-		if parsedToken == nil {
-			return "Enter the \(PairingCode.length)-character pairing code from `absolutetouch token`."
-		}
-		return nil
-	}
-
-	private func startSession() {
-		guard let settings = connectionSettings else {
-			return
-		}
+	private func startSession(_ settings: ConnectionSettings) {
 		session = settings
 		viewModel.start(settings: settings)
 	}
@@ -256,26 +139,6 @@ struct ContentView: View {
 	private func stopSession() {
 		viewModel.stop()
 		session = nil
-	}
-}
-
-struct Card<Content: View>: View {
-	private let content: Content
-
-	init(@ViewBuilder content: () -> Content) {
-		self.content = content()
-	}
-
-	var body: some View {
-		VStack(alignment: .leading, spacing: 14) {
-			content
-		}
-		.padding(20)
-		.frame(maxWidth: .infinity, alignment: .leading)
-		.background(
-			Color(uiColor: .secondarySystemGroupedBackground),
-			in: RoundedRectangle(cornerRadius: 18, style: .continuous)
-		)
 	}
 }
 

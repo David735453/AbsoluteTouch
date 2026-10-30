@@ -4,7 +4,8 @@ This guide covers building the desktop CLI, building the iPad app, and
 preparing Linux for tablet injection. The desktop Wi-Fi session, trace replay,
 the Linux `uinput` backend, the iPad sender, and the USB transport through
 `usbmuxd` exist today (M1–M4). The Windows/macOS backends (M5, M6) are planned,
-and the USB path still needs validation on real hardware.
+and both the Wi-Fi and USB paths have been validated on a real iPad Air (M4)
+with an Apple Pencil (USB-C).
 
 ## Requirements
 
@@ -202,6 +203,18 @@ an older configuration still works and is accepted with spaces, `-`, or `:`
 separators. The code is case-insensitive and folds `I`/`L` to `1` and `O` to
 `0`.
 
+**Drawing area** opens a separate page from the home screen, so it cannot be
+changed mid-session. Only the rectangle shown there accepts the Pencil and it
+still spans the whole desktop, which makes a small area a shorter hand travel
+with the same cursor range. **Lock aspect ratio** is on by default at 16:9,
+matching the desktop screen; presets, custom ratios, size, and position can be
+adjusted, and **Reset to full screen** returns to the whole screen and releases
+the lock. The rectangle is stored as fractions of the screen and re-fits after
+rotation or Split View.
+
+The app follows the device language. English is the only table today; the text
+lives in `AbsoluteTouchCore` so a translation never touches a view.
+
 ### Local network permission
 
 Wi-Fi streaming triggers the local network prompt. The usage description is in
@@ -214,10 +227,9 @@ trusted by the desktop and `usbmuxd` to see the device.
 ## Streaming
 
 The desktop Wi-Fi receiver (M1), the Linux `uinput` backend (M2), the iPad
-sender (M3), and the USB transport (M4) are implemented. The Wi-Fi path has been
-exercised end to end with a real iPad Air and Apple Pencil (USB-C) on Linux. USB
-uses the same sessions and packets over a cable; it is implemented on both sides
-but has not been validated on hardware yet.
+sender (M3), and the USB transport (M4) are implemented. Both paths have been
+exercised end to end with a real iPad Air and Apple Pencil (USB-C) on Linux:
+Wi-Fi over UDP, and USB through `usbmuxd` with reconnect on both ends.
 
 ```sh
 # Normal Linux path: receive over Wi-Fi and inject through uinput

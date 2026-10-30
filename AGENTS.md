@@ -6,12 +6,13 @@ AbsoluteTouch streams Apple Pencil and finger input from an iPad to a desktop
 machine and injects it as an absolute tablet. The iPad is the input device; the
 Rust desktop CLI is the receiver and OS-level injector.
 
-**Current status:** M4 in progress. The desktop implements the Wi-Fi session
-(M2), the Linux `uinput` absolute tablet, and USB through `usbmuxd`, plus a
+**Current status:** M4 complete. The desktop implements the Wi-Fi session (M2),
+the Linux `uinput` absolute tablet, and USB through `usbmuxd`, plus a
 six-character pairing code that expands to the 16-byte wire token. The iPad
 sender — pairing form, UIKit canvas, Swift session machine/controller, and
-Wi-Fi UDP or USB TCP transport — is unit-tested on Linux and the Wi-Fi path has
-been validated on a real iPad Air; USB has not been run on hardware yet.
+Wi-Fi UDP or USB TCP transport — is unit-tested on Linux. Wi-Fi was validated on
+a real iPad Air (M4), and USB has since been validated on the same hardware:
+sessions reconnect on both ends, and a recorded USB trace replays identically.
 Windows/macOS injection is not implemented.
 
 **Read first:**
@@ -201,8 +202,10 @@ and regenerate on macOS.
 - [x] M2: Linux `uinput` backend
 - [x] M3: iPad app, Wi-Fi end-to-end, hover (validated on iPad Air M4 with
       Apple Pencil USB-C)
-- [ ] M4: USB via `usbmuxd`, six-character pairing codes (implemented;
-      hardware validation pending)
+- [x] M4: USB via `usbmuxd`, six-character pairing codes, reconnect on both
+      ends (validated on iPad Air M4 with Apple Pencil USB-C; the two-iPad
+      selection, cable-pull release, listener-bind failure, and screen-awake
+      checks are still open in `docs/testing.md`)
 - [ ] M5: Windows backends (beta)
 - [ ] M6: macOS backend, TestFlight, releases
 

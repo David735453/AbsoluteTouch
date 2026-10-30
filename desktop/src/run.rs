@@ -191,20 +191,30 @@ pub fn usb(
         let mut buffer = [0_u8; 1_024];
 
         while !stop.load(Ordering::Relaxed) {
-            match stream.read(&mut buffer) {
-                Ok(0) => {
-                    eprintln!("usb connection closed by the iPad");
-                    break;
-                }
-                Ok(count) => decoder.push(&buffer[..count]),
-                Err(error)
-                    if matches!(
-                        error.kind(),
-                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-                    ) => {}
-                Err(error) => {
-                    eprintln!("usb read failed: {error}");
-                    break;
+            // On unix the tick comes from `poll`. Windows uses the socket read
+            // timeout instead, so it always calls `read` and treats
+            // `WouldBlock` as an empty tick.
+            #[cfg(unix)]
+            let readable = wait_readable(&stream, TICK)?;
+            #[cfg(not(unix))]
+            let readable = true;
+
+            if readable {
+                match stream.read(&mut buffer) {
+                    Ok(0) => {
+                        eprintln!("usb connection closed by the iPad");
+                        break;
+                    }
+                    Ok(count) => decoder.push(&buffer[..count]),
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                        ) => {}
+                    Err(error) => {
+                        eprintln!("usb read failed: {error}");
+                        break;
+                    }
                 }
             }
 
@@ -318,10 +328,37 @@ fn connect_once(
     }
 
     let stream = daemon.connect_device(device.id, config.tcp_port)?;
-    // A short read timeout keeps the session tick and watchdog running when the
-    // app pauses; reads return `WouldBlock` instead of blocking the loop.
+    // Windows has no `poll` here, so the read timeout provides the tick. On
+    // unix the runner polls instead: Darwin rejects `SO_RCVTIMEO` on a socket
+    // whose peer has already closed, which killed the first attempt after a
+    // dropped connection.
+    #[cfg(not(unix))]
     stream.set_read_timeout(Some(TICK))?;
     Ok((device, stream))
+}
+
+/// Wait until `stream` has bytes to read, or `timeout` expires.
+///
+/// Returns `false` when the timeout expired first. A socket timeout would be
+/// the obvious alternative, but `usbmuxd` hands over a stream whose peer may
+/// already be gone, and macOS answers `EINVAL` to `setsockopt(SO_RCVTIMEO)`
+/// on such a socket. Polling re-checks the descriptor each tick instead.
+#[cfg(unix)]
+fn wait_readable(stream: &usbmux::Stream, timeout: Duration) -> Result<bool, Error> {
+    use rustix::event::{PollFd, PollFlags, poll};
+    use rustix::time::Timespec;
+
+    let seconds = i64::try_from(timeout.as_secs()).unwrap_or(i64::MAX);
+    let deadline = Timespec {
+        tv_sec: seconds,
+        tv_nsec: i64::from(timeout.subsec_nanos()),
+    };
+    let mut fds = [PollFd::new(stream, PollFlags::IN)];
+    match poll(&mut fds, Some(&deadline)) {
+        Ok(0) => Ok(false),
+        Ok(_) => Ok(true),
+        Err(error) => Err(io::Error::from(error).into()),
+    }
 }
 
 /// Sleep for `total`, returning early when `stop` is set.

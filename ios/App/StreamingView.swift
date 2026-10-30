@@ -10,12 +10,19 @@ import SwiftUI
 struct StreamingView: View {
 	let viewModel: StreamingViewModel
 	let settings: ConnectionSettings
+	let areaSettings: ActiveAreaSettings
 	let onStop: @MainActor () -> Void
 
 	var body: some View {
 		ZStack {
-			CanvasViewRepresentable { sample in
-				viewModel.submit(sample)
+			GeometryReader { proxy in
+				CanvasViewRepresentable(
+					activeArea: areaSettings.resolved(
+						forCanvasAspect: canvasAspect(proxy.size)
+					)
+				) { sample in
+					viewModel.submit(sample)
+				}
 			}
 			.ignoresSafeArea()
 
@@ -182,6 +189,13 @@ struct StreamingView: View {
 		}
 		return parts.joined(separator: " · ")
 	}
+
+	private func canvasAspect(_ size: CGSize) -> Double {
+		guard size.width > 0, size.height > 0 else {
+			return 1
+		}
+		return Double(size.width / size.height)
+	}
 }
 
 #Preview {
@@ -192,6 +206,7 @@ struct StreamingView: View {
 			port: ConnectionSettings.defaultPort,
 			token: PairingToken.random()
 		),
+		areaSettings: .default,
 		onStop: {}
 	)
 }

@@ -214,11 +214,11 @@ Mapping is pure and unit-tested without any OS backend.
 
 ## iPad app
 
-| Layer               | Responsibility                                       | Status |
-| ------------------- | ---------------------------------------------------- | ------ |
-| `ios/App`           | SwiftUI pairing shell, UIKit canvas, view model      | M3     |
-| `AbsoluteTouchCore` | Protocol, session machine, controller, UDP transport | M3     |
-| UI tests            | Not used for protocol logic                          | -      |
+| Layer               | Responsibility                                  | Status |
+| ------------------- | ----------------------------------------------- | ------ |
+| `ios/App`           | SwiftUI pairing shell, UIKit canvas, view model | M3, M4 |
+| `AbsoluteTouchCore` | Protocol, session machine, controller, UDP/TCP  | M3, M4 |
+| UI tests            | Not used for protocol logic                     | -      |
 
 ### Why a Swift package
 
@@ -253,6 +253,43 @@ shell around a UIKit canvas. See
   reference Pencil (USB-C) does not report it.
 - `PointerNormalization` converts points and radians to wire units. It is pure
   and tested on Linux, where UIKit is unavailable.
+- A contact that begins outside the configured drawing area is ignored. Leaving
+  the area mid-stroke sends `outOfRange` and lifts the desktop pointer; coming
+  back in starts a new stroke while the Pencil is still down.
+
+### Drawing area
+
+The iPad has a configurable active rectangle, set on its own page from the
+pairing screen and never during a session:
+
+- `ActiveArea` stores the rectangle as fractions of the canvas, so it keeps its
+  place through rotation, Split View, and other iPad sizes.
+- `ActiveAreaSettings` adds the aspect lock and ratio. With the lock on, the
+  stored height and center are kept and the width is derived from the ratio and
+  the current canvas shape; a rectangle that would not fit is scaled down by
+  the same factor on both sides, so the ratio never breaks.
+- The lock defaults to on with 16:9, matching the desktop screen, which
+  resolves a full-screen setting to a full-width 16:9 strip on a 4:3 iPad.
+- The canvas normalizes positions against the area, not the screen, so the
+  whole desktop is reachable inside a small rectangle. The desktop target is
+  unchanged; no protocol field is involved.
+- The area is dimmed outside and outlined while streaming, and the editor draws
+  the same rectangle in a preview with drag, size, ratio, and position controls.
+
+### Localization
+
+User-facing text lives in `TextKey` and per-language tables in
+`AbsoluteTouchCore`, not in view bodies:
+
+- `Localization.current` resolves the device language by primary subtag and
+  falls back to English. `Copy` is the app's accessor.
+- Strings use positional placeholders (`%1$@`) so translations may reorder
+  them, and formatting uses the requested locale for decimals.
+- The tables are Swift source so the XcodeGen and xtool builds package no
+  `.lproj` resources, and `swift test` checks completeness on Linux.
+- Adding a language means one `AppLanguage` case, one table, and a
+  `Localization.table(for:)` branch; the completeness test fails until every
+  key exists.
 
 ### Concurrency
 
@@ -358,7 +395,7 @@ idle ──start──▶ connecting(attempt) ──HELLO_ACK──▶ streaming
 | M1        | Desktop session, UDP, config, trace replay, mock injector         |
 | M2        | Linux `uinput` backend                                            |
 | M3        | iPad canvas, Wi-Fi end-to-end, hover (validated on hardware)      |
-| M4        | USB via `usbmuxd` (implemented; hardware validation pending)      |
+| M4        | USB via `usbmuxd`, reconnect (validated on hardware)              |
 | M5        | Windows backends (beta)                                           |
 | M6        | macOS backend, TestFlight, releases                               |
 

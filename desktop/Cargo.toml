@@ -46,3 +46,6 @@ doc_markdown = "allow"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 evdev = "0.13.2"
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1", features = ["event", "time"] }
